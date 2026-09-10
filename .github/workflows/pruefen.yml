@@ -11,8 +11,6 @@ permissions:
 jobs:
   test-und-android:
     runs-on: ubuntu-latest
-    env:
-      ANDROID_AVD_HOME: ${{ runner.temp }}/xyz-avd
     steps:
       - uses: actions/checkout@v4
 
@@ -73,6 +71,9 @@ jobs:
           set -euo pipefail
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           AVDMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager"
+          AVD_HOME="$RUNNER_TEMP/xyz-avd"
+          echo "ANDROID_AVD_HOME=$AVD_HOME" >> "$GITHUB_ENV"
+          export ANDROID_AVD_HOME="$AVD_HOME"
           test -x "$SDKMANAGER"
           test -x "$AVDMANAGER"
           mkdir -p "$ANDROID_AVD_HOME"
@@ -90,7 +91,9 @@ jobs:
           set -euo pipefail
           APK=android/app/build/outputs/apk/debug/app-debug.apk
           ADB="$ANDROID_HOME/platform-tools/adb"
+          test -n "${ANDROID_AVD_HOME:-}"
           test -x "$ADB"
+          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx 'xyz-smoke'
           "$ADB" start-server
           nohup "$ANDROID_HOME/emulator/emulator" \
             -avd xyz-smoke \
