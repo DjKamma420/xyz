@@ -1,0 +1,23 @@
+{
+  "name": "xyz",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Android-Stundenplan auf Basis der StundenplanNothing-PWA mit Mehrplan-Merge und Vertretungsplan-Anbindung.",
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "test": "node --test werkzeug/pruefungen/*.test.mjs",
+    "check": "node werkzeug/pruefen.mjs && npm test",
+    "android:sync": "node werkzeug/android-sync.mjs",
+    "android:debug": "npm run check && npm run android:sync && gradle -p android :app:assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.1",
+    "@capacitor/core": "8.5.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.1"
+  }
+}
