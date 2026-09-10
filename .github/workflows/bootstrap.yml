@@ -34,7 +34,10 @@ jobs:
 
           rm -rf bootstrap
           tar -xzf /tmp/xyz-source.tar.gz
-          rm -f .github/workflows/bootstrap.yml
+          # Workflow-Dateien dürfen vom Actions-Token nicht verändert werden.
+          # bootstrap.yml bleibt deshalb unverändert; pruefen.yml wird danach
+          # über den verbundenen GitHub-Zugriff angelegt.
+          rm -f .github/workflows/pruefen.yml
           rm -f BRANCHING.md REPOSITORY_READY.md docs/INITIALIZATION.md
 
           git config user.name "github-actions[bot]"
