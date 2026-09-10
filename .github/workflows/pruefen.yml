@@ -39,11 +39,14 @@ jobs:
       - name: Android Debug APK bauen
         run: gradle -p android :app:assembleDebug
 
-      - name: APK als Artefakt bereitstellen
+      - name: APK für GitHub bereitstellen
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk xyz-debug-0.2.0.apk
+
+      - name: APK als Actions-Artefakt bereitstellen
         uses: actions/upload-artifact@v4
         with:
           name: xyz-debug-0.2.0
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: xyz-debug-0.2.0.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -51,7 +54,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          APK=xyz-debug-0.2.0.apk
           test -s "$APK"
           unzip -t "$APK" >/dev/null
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
@@ -90,7 +93,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          APK=xyz-debug-0.2.0.apk
           ADB="$ANDROID_HOME/platform-tools/adb"
           test -n "${ANDROID_AVD_HOME:-}"
           test -x "$ADB"
@@ -131,3 +134,34 @@ jobs:
         shell: bash
         run: |
           if [ -f /tmp/xyz-emulator.log ]; then tail -n 250 /tmp/xyz-emulator.log; fi
+
+  github-prerelease:
+    name: GitHub-Prerelease
+    needs: test-und-android
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/android-shell'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: APK-Artefakt laden
+        uses: actions/download-artifact@v4
+        with:
+          name: xyz-debug-0.2.0
+
+      - name: GitHub-Prerelease v0.2.0-test erstellen oder aktualisieren
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s xyz-debug-0.2.0.apk
+          if gh release view v0.2.0-test --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v0.2.0-test xyz-debug-0.2.0.apk --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create v0.2.0-test xyz-debug-0.2.0.apk \
+              --repo "$GITHUB_REPOSITORY" \
+              --target feature/android-shell \
+              --title "xyz 0.2.0 Test" \
+              --notes "Test-APK: responsive Bildschirmgrößen und verbundene HTTPS-Planquellen. Debug-signiert, nicht für den Play Store." \
+              --prerelease
+          fi
