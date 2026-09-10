@@ -15,12 +15,11 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
-import java.net.HttpCookie;
-import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -156,7 +155,7 @@ public class VPlanPlugin extends Plugin {
             conn.setRequestProperty("Accept", "application/json,text/html,text/plain,*/*");
             conn.setRequestProperty("User-Agent", "xyz-android/0.1.0");
 
-            Map<String,List<String>> cookieHeaders = cookies.get(uri, Map.of());
+            Map<String,List<String>> cookieHeaders = cookies.get(uri, Collections.emptyMap());
             for (Map.Entry<String,List<String>> h : cookieHeaders.entrySet())
                 if (h.getKey() != null && !h.getValue().isEmpty()) conn.setRequestProperty(h.getKey(), String.join("; ", h.getValue()));
 
