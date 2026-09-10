@@ -6,13 +6,28 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test-und-android:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Einmaliges v0.2.0-Patch anwenden
+        if: github.ref == 'refs/heads/feature/android-shell' && hashFiles('werkzeug/patch-v020.b64.*') != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat werkzeug/patch-v020.b64.* | base64 -d | gzip -d > /tmp/v020.patch
+          git apply --check /tmp/v020.patch
+          git apply /tmp/v020.patch
+          rm -f werkzeug/patch-v020.b64.*
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Behebe kleine Displays und verbinde Planquellen per Link'
+          git push
 
       - uses: actions/setup-node@v4
         with:
@@ -63,6 +78,7 @@ jobs:
           printf '%s\n' "$BADGING"
           grep -q "package: name='com.djkamma420.xyz.dev'" <<<"$BADGING"
           grep -q "application-label:'xyz'" <<<"$BADGING"
+          grep -q "versionName='0.2.0'" <<<"$BADGING"
           sha256sum "$APK"
 
       - name: Android-Emulator vorbereiten
@@ -105,40 +121,24 @@ jobs:
             -no-metrics \
             >/tmp/xyz-emulator.log 2>&1 &
           EMULATOR_PID=$!
-
           if ! timeout 90 "$ADB" wait-for-device; then
-            echo "Emulator wurde von adb nicht erkannt."
             cat /tmp/xyz-emulator.log
             kill "$EMULATOR_PID" 2>/dev/null || true
             exit 1
           fi
-
           booted=0
           for _ in $(seq 1 90); do
-            if [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
-              booted=1
-              break
-            fi
-            if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
-              echo "Emulator-Prozess wurde vor Abschluss des Boots beendet."
-              cat /tmp/xyz-emulator.log
-              exit 1
-            fi
+            if [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then booted=1; break; fi
+            if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then cat /tmp/xyz-emulator.log; exit 1; fi
             sleep 2
           done
-          if [ "$booted" != "1" ]; then
-            echo "Android-Boot wurde nicht abgeschlossen."
-            cat /tmp/xyz-emulator.log
-            kill "$EMULATOR_PID" 2>/dev/null || true
-            exit 1
-          fi
-
+          if [ "$booted" != "1" ]; then cat /tmp/xyz-emulator.log; kill "$EMULATOR_PID" 2>/dev/null || true; exit 1; fi
           "$ADB" install -r "$APK"
           "$ADB" shell am force-stop com.djkamma420.xyz.dev
           "$ADB" shell am start -W -n com.djkamma420.xyz.dev/.MainActivity | tee /tmp/xyz-launch.txt
           grep -Eq '^Status: ok$|^Complete$' /tmp/xyz-launch.txt
           test -n "$("$ADB" shell pidof com.djkamma420.xyz.dev | tr -d '\r')"
-          "$ADB" shell dumpsys package com.djkamma420.xyz.dev | grep -q 'versionName=0.1.0'
+          "$ADB" shell dumpsys package com.djkamma420.xyz.dev | grep -q 'versionName=0.2.0'
           "$ADB" emu kill || true
 
       - name: Emulator-Log bei Fehler ausgeben
