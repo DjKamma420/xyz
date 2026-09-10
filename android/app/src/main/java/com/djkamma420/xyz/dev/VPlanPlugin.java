@@ -153,7 +153,7 @@ public class VPlanPlugin extends Plugin {
                 throw new IllegalArgumentException("HTTP-Methode nicht erlaubt");
             conn.setRequestMethod(method);
             conn.setRequestProperty("Accept", "application/json,text/html,text/plain,*/*");
-            conn.setRequestProperty("User-Agent", "xyz-android/0.1.0");
+            conn.setRequestProperty("User-Agent", "xyz-android/0.2.0");
 
             Map<String,List<String>> cookieHeaders = cookies.get(uri, Collections.emptyMap());
             for (Map.Entry<String,List<String>> h : cookieHeaders.entrySet())
@@ -191,9 +191,9 @@ public class VPlanPlugin extends Plugin {
             out.put("date", conn.getHeaderField("Date") == null ? "" : conn.getHeaderField("Date"));
             call.resolve(out);
         } catch (java.net.SocketTimeoutException e) {
-            call.reject("Zeitüberschreitung beim Schulportal.", "TIMEOUT");
+            call.reject("Zeitüberschreitung bei der Netzwerkanfrage.", "TIMEOUT");
         } catch (Exception e) {
-            call.reject("Netzwerkanfrage an das Schulportal fehlgeschlagen.", "NETWORK_ERROR");
+            call.reject("Netzwerkanfrage fehlgeschlagen.", "NETWORK_ERROR");
         } finally {
             if (conn != null) conn.disconnect();
         }
