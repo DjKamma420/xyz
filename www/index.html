@@ -40,8 +40,10 @@ body.schrift-serif{ --sans:ui-serif,Georgia,"Times New Roman",serif }
 *{box-sizing:border-box;overflow-wrap:break-word}
 html,body{margin:0;background:var(--ink);color:var(--text);font-family:var(--sans);
   -webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-size-adjust:100%}
-body{padding:14px 16px 158px;max-width:640px;margin:0 auto;
-  display:flex;flex-direction:column;min-height:100dvh}
+body{padding:max(14px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right))
+  calc(var(--fuss-h,138px) + 20px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));
+  width:100%;max-width:640px;min-width:0;margin:0 auto;overflow-x:hidden;
+  display:flex;flex-direction:column;min-height:100vh;min-height:100dvh}
 /* Fängt jede Wischgeste unterhalb des Inhalts ab und wechselt die Ansicht. */
 #leerraum{flex:1 0 48px;touch-action:pan-y}
 /* Langes Drücken ist hier eine Geste der App. Ohne diese Zeilen legt iOS
@@ -244,10 +246,10 @@ section{margin-top:30px}
   color:var(--akzent);border-radius:8px;width:26px;height:26px;font-size:13px}
 
 /* Fuß */
-#fuss{position:fixed;left:50%;transform:translateX(-50%);width:100%;max-width:640px;bottom:0;
+#fuss{position:fixed;left:0;right:0;margin:0 auto;width:100%;max-width:640px;bottom:0;
   z-index:5;background:var(--ink);
   border-top:1px solid var(--line2);touch-action:pan-y;
-  padding:12px 16px calc(8px + env(safe-area-inset-bottom))}
+  padding:12px max(16px,env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
 #fuss > *{max-width:608px;margin-left:auto;margin-right:auto}
 /* display:block, damit margin:auto oben greift — ein <button> ist von Haus
    aus inline-block und liesse sich davon nicht zentrieren. */
@@ -327,7 +329,8 @@ section{margin-top:30px}
 
 /* Dialoge */
 dialog{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:16px;
-  padding:20px;width:min(93vw,440px);max-height:86vh}
+  padding:20px;width:min(calc(100vw - 20px),440px);
+  max-height:calc(100vh - 20px);max-height:calc(100dvh - 20px);overflow-y:auto;overscroll-behavior:contain}
 dialog::backdrop{background:var(--schleier)}
 dialog h2{font-size:17px;margin:0 0 3px;font-weight:600}
 label{display:block;margin-top:14px}
@@ -402,6 +405,18 @@ details summary{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-
   color:var(--muted);cursor:pointer;padding:8px 0}
 /* Am Rechner gibt es einen Zeiger — dort ist eine Rückmeldung beim
    Überfahren üblich. Auf dem Handy bleibt alles wie bisher. */
+@media (max-width:420px){
+  body{padding-left:max(12px,env(safe-area-inset-left));padding-right:max(12px,env(safe-area-inset-right))}
+  .top{gap:5px}.reiter{gap:1px}.reiter button{font-size:9.5px;padding:7px 1px}
+  header h1{font-size:25px}.tage{gap:3px}.tage button{font-size:11px}
+  .block{grid-template-columns:52px minmax(0,1fr);gap:10px}.fach{font-size:17px}
+  .zwei{display:grid;grid-template-columns:minmax(0,1fr)}
+  .reihe{flex-wrap:wrap}.reihe button{flex:1 1 120px}.reihe .weg{flex:0 0 54px}
+  dialog{padding:16px;width:calc(100vw - 12px);border-radius:13px}
+}
+@media (max-height:620px){
+  .fortschritt{margin-top:10px}.tage{margin-top:12px}.block{padding-top:12px;padding-bottom:12px}
+}
 @media (hover:hover) and (pointer:fine){
   .block:hover,.zeuZeile:hover,.merkzeile:hover,.stapel button:hover,
   .liste li:hover .titel{color:var(--akzent)}
@@ -820,9 +835,12 @@ details summary{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-
   <section class="einstTeil" data-einst="stundenplaene">
   <div class="eyebrow" style="margin-top:18px">Stundenpläne</div>
   <p class="hinweis">Quellpläne bleiben getrennt gespeichert. Der sichtbare Plan wird aus aktiven Quellen und deinen Zusammenführungsregeln berechnet.</p>
-  <label><span>Name der neuen Quelle</span><input type="text" id="sPlanName" maxlength="80" placeholder="z. B. Stammklasse 10B"></label>
+  <label><span>Name der Quelle</span><input type="text" id="sPlanName" maxlength="80" placeholder="z. B. Stammklasse 10B"></label>
+  <label><span>Plan-Link (HTTPS)</span><input type="url" id="sPlanUrl" maxlength="2048" inputmode="url" autocomplete="url" placeholder="https://…/stundenplan.json"></label>
+  <p class="hinweis">Der Link muss direkt ein kompatibles xyz-/Stundenplan-JSON liefern. Verbundene Links werden beim Öffnen der App automatisch aktualisiert.</p>
   <div class="chips">
-    <button type="button" id="sPlanDatei">Plan-Datei hinzufügen</button>
+    <button type="button" id="sPlanLink" style="border-color:var(--akzent);color:var(--akzent)">Link verbinden</button>
+    <button type="button" id="sPlanDatei">JSON-Datei als Fallback</button>
     <button type="button" id="sPlanMergeNeu">Neu berechnen</button>
   </div>
   <input type="file" id="sPlanDateiLesen" accept="application/json,.json" style="display:none">

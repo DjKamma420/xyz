@@ -8,8 +8,8 @@ android {
         applicationId 'com.djkamma420.xyz.dev'
         minSdk = rootProject.ext.minSdkVersion
         targetSdk = rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName '0.1.0'
+        versionCode 2
+        versionName '0.2.0'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 

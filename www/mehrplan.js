@@ -9,6 +9,21 @@
   const WOCHEN = ['A','B'];
 
   const text = v => v == null ? '' : String(v).trim();
+  const httpsUrl = v => {
+    const t = text(v);
+    if(!t || t.length > 2048 || !/^https:\/\//i.test(t)) return '';
+    try{ const u = new URL(t); return u.protocol === 'https:' && !u.username && !u.password ? u.href : ''; }
+    catch(e){ return ''; }
+  };
+  function verbindungNormalisieren(raw){
+    if(!raw || typeof raw !== 'object' || raw.typ !== 'url') return null;
+    const url = httpsUrl(raw.url); if(!url) return null;
+    return {
+      typ:'url', url,
+      letzterAbrufAm:text(raw.letzterAbrufAm).slice(0,40),
+      letzterFehler:text(raw.letzterFehler).slice(0,240)
+    };
+  }
   const klonen = v => v == null ? v : JSON.parse(JSON.stringify(v));
   const zelle = raw => {
     if(!raw || typeof raw !== 'object') return null;
@@ -55,6 +70,7 @@
       aktiv:raw.aktiv !== false,
       hinzugefuegtAm:text(raw.hinzugefuegtAm),
       aktualisiertAm:text(raw.aktualisiertAm),
+      verbindung:verbindungNormalisieren(raw.verbindung),
       raster:{slots, zweiWochen},
       plan:planNormalisieren(raw.plan || {}, slots, zweiWochen)
     };
@@ -176,24 +192,26 @@
       .filter(r => r.quellen.every(id => ids.has(id)));
   }
 
-  function neueQuelle({id,name,plan,slots,zweiWochen,aktiv=true,jetzt}){
+  function neueQuelle({id,name,plan,slots,zweiWochen,aktiv=true,jetzt,verbindung=null}){
     const stamp = text(jetzt) || new Date().toISOString();
     return quelleNormalisieren({
       id:id || `q_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,7)}`,
       name:name || 'Stundenplan', aktiv,
-      hinzugefuegtAm:stamp, aktualisiertAm:stamp,
+      hinzugefuegtAm:stamp, aktualisiertAm:stamp, verbindung,
       raster:{slots,zweiWochen}, plan
     });
   }
 
-  function quelleAktualisieren(quelleRaw,{plan,slots,zweiWochen,jetzt}){
+  function quelleAktualisieren(quelleRaw,{plan,slots,zweiWochen,jetzt,verbindung}){
     const q = quelleNormalisieren(quelleRaw);
     if(!q) throw new Error('Ungültige Quelle');
-    return quelleNormalisieren({...q, plan, raster:{slots,zweiWochen}, aktualisiertAm:text(jetzt)||new Date().toISOString()});
+    return quelleNormalisieren({...q, plan, raster:{slots,zweiWochen},
+      verbindung:verbindung === undefined ? q.verbindung : verbindung,
+      aktualisiertAm:text(jetzt)||new Date().toISOString()});
   }
 
   return {
-    TAGE, WOCHEN, zelle, gleich, rasterNormalisieren, planNormalisieren, quelleNormalisieren,
+    TAGE, WOCHEN, zelle, gleich, rasterNormalisieren, planNormalisieren, quelleNormalisieren, verbindungNormalisieren,
     regelNormalisieren, regelKey, zusammenfuehren, regelSetzen, regelnBereinigen,
     neueQuelle, quelleAktualisieren
   };
