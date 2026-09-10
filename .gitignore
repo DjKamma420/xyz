@@ -1,1 +1,12 @@
-# placeholder
+node_modules/
+.gradle/
+android/.gradle/
+android/local.properties
+android/app/build/
+android/build/
+android/app/src/main/assets/
+*.apk
+*.aab
+*.jks
+*.keystore
+.DS_Store
