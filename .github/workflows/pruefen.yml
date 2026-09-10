@@ -46,3 +46,75 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: APK-Struktur, Signatur und Manifest prüfen
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          unzip -t "$APK" >/dev/null
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          test -x "$AAPT"
+          "$APKSIGNER" verify --verbose "$APK"
+          BADGING="$($AAPT dump badging "$APK")"
+          printf '%s\n' "$BADGING"
+          grep -q "package: name='com.djkamma420.xyz.dev'" <<<"$BADGING"
+          grep -q "application-label:'xyz'" <<<"$BADGING"
+          sha256sum "$APK"
+
+      - name: Android-Emulator vorbereiten
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          AVDMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager"
+          test -x "$SDKMANAGER"
+          test -x "$AVDMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "emulator" "system-images;android-35;google_apis;x86_64"
+          echo no | "$AVDMANAGER" create avd -f -n xyz-smoke -k "system-images;android-35;google_apis;x86_64"
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+
+      - name: APK auf Emulator installieren und starten
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          nohup "$ANDROID_HOME/emulator/emulator" \
+            -avd xyz-smoke \
+            -no-window \
+            -noaudio \
+            -no-boot-anim \
+            -gpu swiftshader_indirect \
+            -no-snapshot-save \
+            >/tmp/xyz-emulator.log 2>&1 &
+
+          adb wait-for-device
+          booted=0
+          for _ in $(seq 1 120); do
+            if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
+              booted=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$booted" != "1" ]; then
+            cat /tmp/xyz-emulator.log
+            exit 1
+          fi
+
+          adb install -r "$APK"
+          adb shell am force-stop com.djkamma420.xyz.dev
+          adb shell am start -W -n com.djkamma420.xyz.dev/.MainActivity | tee /tmp/xyz-launch.txt
+          grep -Eq '^Status: ok$|^Complete$' /tmp/xyz-launch.txt
+          test -n "$(adb shell pidof com.djkamma420.xyz.dev | tr -d '\r')"
+          adb shell dumpsys package com.djkamma420.xyz.dev | grep -q 'versionName=0.1.0'
+
+      - name: Emulator-Log bei Fehler ausgeben
+        if: failure()
+        shell: bash
+        run: |
+          if [ -f /tmp/xyz-emulator.log ]; then tail -n 250 /tmp/xyz-emulator.log; fi
