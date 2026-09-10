@@ -11,6 +11,8 @@ permissions:
 jobs:
   test-und-android:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_AVD_HOME: ${{ runner.temp }}/xyz-avd
     steps:
       - uses: actions/checkout@v4
 
@@ -73,9 +75,12 @@ jobs:
           AVDMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager"
           test -x "$SDKMANAGER"
           test -x "$AVDMANAGER"
+          mkdir -p "$ANDROID_AVD_HOME"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platform-tools" "emulator" "system-images;android-35;google_apis;x86_64"
           echo no | "$AVDMANAGER" create avd -f -n xyz-smoke -k "system-images;android-35;google_apis;x86_64"
+          "$ANDROID_HOME/emulator/emulator" -list-avds | tee /tmp/xyz-avds.txt
+          grep -qx 'xyz-smoke' /tmp/xyz-avds.txt
           if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
 
       - name: APK auf Emulator installieren und starten
