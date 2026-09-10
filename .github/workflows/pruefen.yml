@@ -1,7 +1,9 @@
-name: Prüfen und APK bauen
+name: Prüfen, APK bauen und veröffentlichen
 
 on:
   push:
+    paths-ignore:
+      - 'xyz.apk'
   pull_request:
   workflow_dispatch:
 
@@ -16,7 +18,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version-file: .nvmrc
+          node-version-file: source/.nvmrc
 
       - uses: actions/setup-java@v4
         with:
@@ -24,12 +26,15 @@ jobs:
           java-version: '21'
 
       - name: npm-Abhängigkeiten installieren
+        working-directory: source
         run: npm install --ignore-scripts
 
       - name: Statische Prüfungen und Tests
+        working-directory: source
         run: npm run check
 
       - name: Webassets für Android synchronisieren
+        working-directory: source
         run: npm run android:sync
 
       - uses: gradle/actions/setup-gradle@v4
@@ -37,16 +42,16 @@ jobs:
           gradle-version: '8.14.3'
 
       - name: Android Debug APK bauen
-        run: gradle -p android :app:assembleDebug
+        run: gradle -p source/android :app:assembleDebug
 
-      - name: APK für GitHub bereitstellen
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk xyz-debug-0.2.0.apk
+      - name: Fertige Application bereitstellen
+        run: cp source/android/app/build/outputs/apk/debug/app-debug.apk xyz.apk
 
       - name: APK als Actions-Artefakt bereitstellen
         uses: actions/upload-artifact@v4
         with:
-          name: xyz-debug-0.2.0
-          path: xyz-debug-0.2.0.apk
+          name: xyz-apk
+          path: xyz.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -54,7 +59,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK=xyz-debug-0.2.0.apk
+          APK=xyz.apk
           test -s "$APK"
           unzip -t "$APK" >/dev/null
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
@@ -84,8 +89,7 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platform-tools" "emulator" "system-images;android-35;google_apis;x86_64"
           echo no | "$AVDMANAGER" create avd -f -n xyz-smoke -k "system-images;android-35;google_apis;x86_64"
-          "$ANDROID_HOME/emulator/emulator" -list-avds | tee /tmp/xyz-avds.txt
-          grep -qx 'xyz-smoke' /tmp/xyz-avds.txt
+          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx 'xyz-smoke'
           if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
 
       - name: APK auf Emulator installieren und starten
@@ -93,11 +97,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK=xyz-debug-0.2.0.apk
+          APK=xyz.apk
           ADB="$ANDROID_HOME/platform-tools/adb"
           test -n "${ANDROID_AVD_HOME:-}"
           test -x "$ADB"
-          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx 'xyz-smoke'
           "$ADB" start-server
           nohup "$ANDROID_HOME/emulator/emulator" \
             -avd xyz-smoke \
@@ -135,33 +138,50 @@ jobs:
         run: |
           if [ -f /tmp/xyz-emulator.log ]; then tail -n 250 /tmp/xyz-emulator.log; fi
 
-  github-prerelease:
-    name: GitHub-Prerelease
+  github-application:
+    name: Fertige Application auf GitHub aktualisieren
     needs: test-und-android
-    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/android-shell'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: APK-Artefakt laden
+      - uses: actions/checkout@v4
+
+      - name: Geprüfte APK laden
         uses: actions/download-artifact@v4
         with:
-          name: xyz-debug-0.2.0
+          name: xyz-apk
+          path: .
 
-      - name: GitHub-Prerelease v0.2.0-test erstellen oder aktualisieren
+      - name: xyz.apk im Main-Root aktualisieren
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s xyz.apk
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f xyz.apk
+          if git diff --cached --quiet; then
+            echo 'xyz.apk ist bereits aktuell.'
+          else
+            git commit -m 'Aktualisiere installierbare xyz.apk'
+            git push origin HEAD:main
+          fi
+
+      - name: GitHub-Prerelease aktualisieren
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          test -s xyz-debug-0.2.0.apk
-          if gh release view v0.2.0-test --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload v0.2.0-test xyz-debug-0.2.0.apk --clobber --repo "$GITHUB_REPOSITORY"
+          if gh release view v0.2.0-preview --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v0.2.0-preview xyz.apk --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create v0.2.0-test xyz-debug-0.2.0.apk \
+            gh release create v0.2.0-preview xyz.apk \
               --repo "$GITHUB_REPOSITORY" \
-              --target feature/android-shell \
-              --title "xyz 0.2.0 Test" \
-              --notes "Test-APK: responsive Bildschirmgrößen und verbundene HTTPS-Planquellen. Debug-signiert, nicht für den Play Store." \
+              --target main \
+              --title 'xyz 0.2.0 Preview' \
+              --notes 'Installierbare Android-Preview. Dieselbe geprüfte APK liegt zusätzlich als xyz.apk direkt im Main-Root. Debug-signiert; noch kein Play-Store-Release.' \
               --prerelease
           fi
