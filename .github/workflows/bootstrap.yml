@@ -19,12 +19,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Alle Transportteile sind ab diesem Commit vollständig vorhanden.
           cat \
             bootstrap/chunk00.txt \
             bootstrap/chunk01.txt \
             bootstrap/chunk02-03.txt \
+            bootstrap/chunk03.txt \
             bootstrap/chunk04-05.txt \
+            bootstrap/chunk05.txt \
             bootstrap/chunk06.txt \
             bootstrap/chunk07.txt \
             bootstrap/chunk08.txt \
