@@ -79,32 +79,49 @@ jobs:
           if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
 
       - name: APK auf Emulator installieren und starten
+        timeout-minutes: 6
         shell: bash
         run: |
           set -euo pipefail
           APK=android/app/build/outputs/apk/debug/app-debug.apk
           ADB="$ANDROID_HOME/platform-tools/adb"
           test -x "$ADB"
+          "$ADB" start-server
           nohup "$ANDROID_HOME/emulator/emulator" \
             -avd xyz-smoke \
             -no-window \
             -noaudio \
             -no-boot-anim \
             -gpu swiftshader_indirect \
-            -no-snapshot-save \
+            -no-snapshot \
+            -no-metrics \
             >/tmp/xyz-emulator.log 2>&1 &
+          EMULATOR_PID=$!
 
-          "$ADB" wait-for-device
+          if ! timeout 90 "$ADB" wait-for-device; then
+            echo "Emulator wurde von adb nicht erkannt."
+            cat /tmp/xyz-emulator.log
+            kill "$EMULATOR_PID" 2>/dev/null || true
+            exit 1
+          fi
+
           booted=0
-          for _ in $(seq 1 120); do
+          for _ in $(seq 1 90); do
             if [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
               booted=1
               break
             fi
+            if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
+              echo "Emulator-Prozess wurde vor Abschluss des Boots beendet."
+              cat /tmp/xyz-emulator.log
+              exit 1
+            fi
             sleep 2
           done
           if [ "$booted" != "1" ]; then
+            echo "Android-Boot wurde nicht abgeschlossen."
             cat /tmp/xyz-emulator.log
+            kill "$EMULATOR_PID" 2>/dev/null || true
             exit 1
           fi
 
@@ -114,6 +131,7 @@ jobs:
           grep -Eq '^Status: ok$|^Complete$' /tmp/xyz-launch.txt
           test -n "$("$ADB" shell pidof com.djkamma420.xyz.dev | tr -d '\r')"
           "$ADB" shell dumpsys package com.djkamma420.xyz.dev | grep -q 'versionName=0.1.0'
+          "$ADB" emu kill || true
 
       - name: Emulator-Log bei Fehler ausgeben
         if: failure()
