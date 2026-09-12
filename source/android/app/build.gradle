@@ -8,12 +8,27 @@ android {
         applicationId 'com.djkamma420.xyz.dev'
         minSdk = rootProject.ext.minSdkVersion
         targetSdk = rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName '0.2.0'
+        versionCode 3
+        versionName '0.3.0'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
+    // Ausschließlich für die sideloadbare Preview. Der Schlüssel ist bewusst
+    // Teil des Quellcodes, damit jeder Preview-Build dieselbe Signatur erhält
+    // und Android ihn als Update akzeptiert. Niemals für einen Store-Build nutzen.
+    signingConfigs {
+        preview {
+            storeFile file('preview-signing/xyz-preview.keystore')
+            storePassword 'xyz-preview-only'
+            keyAlias 'xyz-preview'
+            keyPassword 'xyz-preview-only'
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig signingConfigs.preview
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'

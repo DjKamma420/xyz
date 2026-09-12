@@ -37,6 +37,14 @@ jobs:
         working-directory: source
         run: npm run android:sync
 
+      - name: Nativen Updater im Android-Build prüfen
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '<script src="updater.js"></script>' source/android/app/src/main/assets/public/index.html
+          grep -q 'registerPlugin(UpdatePlugin.class)' source/android/app/src/main/java/com/djkamma420/xyz/dev/MainActivity.java
+          grep -q 'REQUEST_INSTALL_PACKAGES' source/android/app/src/main/AndroidManifest.xml
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.14.3'
@@ -55,7 +63,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: APK-Struktur, Signatur und Manifest prüfen
+      - name: APK-Struktur, feste Preview-Signatur und Manifest prüfen
         shell: bash
         run: |
           set -euo pipefail
@@ -66,12 +74,15 @@ jobs:
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
           test -x "$APKSIGNER"
           test -x "$AAPT"
-          "$APKSIGNER" verify --verbose "$APK"
+          CERT="$($APKSIGNER verify --verbose --print-certs "$APK")"
+          printf '%s\n' "$CERT"
+          grep -qi 'aaf3cf6b082dbf0b45bee2a1dabe78985726ae4a62769d1d79d4438d879317ea' <<<"$CERT"
           BADGING="$($AAPT dump badging "$APK")"
           printf '%s\n' "$BADGING"
           grep -q "package: name='com.djkamma420.xyz.dev'" <<<"$BADGING"
           grep -q "application-label:'xyz'" <<<"$BADGING"
-          grep -q "versionName='0.2.0'" <<<"$BADGING"
+          grep -q "versionName='0.3.0'" <<<"$BADGING"
+          grep -q "versionCode='3'" <<<"$BADGING"
           sha256sum "$APK"
 
       - name: Android-Emulator vorbereiten
@@ -92,7 +103,7 @@ jobs:
           "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx 'xyz-smoke'
           if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
 
-      - name: APK auf Emulator installieren und starten
+      - name: APK auf Emulator installieren, aktualisieren und starten
         timeout-minutes: 6
         shell: bash
         run: |
@@ -124,12 +135,13 @@ jobs:
             sleep 2
           done
           if [ "$booted" != "1" ]; then cat /tmp/xyz-emulator.log; kill "$EMULATOR_PID" 2>/dev/null || true; exit 1; fi
+          "$ADB" install "$APK"
           "$ADB" install -r "$APK"
           "$ADB" shell am force-stop com.djkamma420.xyz.dev
           "$ADB" shell am start -W -n com.djkamma420.xyz.dev/.MainActivity | tee /tmp/xyz-launch.txt
           grep -Eq '^Status: ok$|^Complete$' /tmp/xyz-launch.txt
           test -n "$("$ADB" shell pidof com.djkamma420.xyz.dev | tr -d '\r')"
-          "$ADB" shell dumpsys package com.djkamma420.xyz.dev | grep -q 'versionName=0.2.0'
+          "$ADB" shell dumpsys package com.djkamma420.xyz.dev | grep -q 'versionName=0.3.0'
           "$ADB" emu kill || true
 
       - name: Emulator-Log bei Fehler ausgeben
@@ -165,23 +177,29 @@ jobs:
           if git diff --cached --quiet; then
             echo 'xyz.apk ist bereits aktuell.'
           else
-            git commit -m 'Aktualisiere installierbare xyz.apk'
+            git commit -m 'Aktualisiere installierbare xyz.apk auf 0.3.0'
             git push origin HEAD:main
           fi
 
-      - name: GitHub-Prerelease aktualisieren
+      - name: Feste Preview-Release aktualisieren
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view v0.2.0-preview --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload v0.2.0-preview xyz.apk --clobber --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create v0.2.0-preview xyz.apk \
+          if gh release view preview --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit preview \
               --repo "$GITHUB_REPOSITORY" \
               --target main \
-              --title 'xyz 0.2.0 Preview' \
-              --notes 'Installierbare Android-Preview. Dieselbe geprüfte APK liegt zusätzlich als xyz.apk direkt im Main-Root. Debug-signiert; noch kein Play-Store-Release.' \
+              --title 'xyz 0.3.0 Preview' \
+              --notes 'version=0.3.0\nInstallierbare Android-Preview mit In-App-Updater. Dieselbe geprüfte APK liegt zusätzlich als xyz.apk direkt im Main-Root. Preview-Signierung; kein Play-Store-Release.' \
+              --prerelease
+            gh release upload preview xyz.apk --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create preview xyz.apk \
+              --repo "$GITHUB_REPOSITORY" \
+              --target main \
+              --title 'xyz 0.3.0 Preview' \
+              --notes 'version=0.3.0\nInstallierbare Android-Preview mit In-App-Updater. Dieselbe geprüfte APK liegt zusätzlich als xyz.apk direkt im Main-Root. Preview-Signierung; kein Play-Store-Release.' \
               --prerelease
           fi
