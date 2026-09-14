@@ -110,13 +110,41 @@
     return Object.entries(obj).map(([k,v])=>
       encodeURIComponent(k)+"="+encodeURIComponent(String(v??"")).replace(/%20/g,"+")).join("&");
   }
-  function portalLoginRequest(benutzer,passwort){
+  function portalUrlErlaubt(value){
+    try{
+      const u=new URL(value);
+      return u.protocol==="https:" && u.hostname==="virtueller-stundenplan.org"
+        && (!u.port||u.port==="443") && !u.username && !u.password;
+    }catch(e){return false;}
+  }
+  function portalLoginForm(html){
+    const fehler=()=>Object.assign(new Error("Das Portal-Anmeldeformular hat eine unerwartete Struktur."),{code:"PARSER_FEHLER"});
+    const attribute=tag=>Object.fromEntries([...tag.matchAll(/([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g)]
+      .map(m=>[m[1].toLowerCase(),htmlDecode(m[2]??m[3]??m[4])]));
+    const quelle=String(html||"").replace(/<!--[\s\S]*?-->/g,"").replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi,"");
+    const gefunden=[];
+    for(const m of quelle.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form\s*>/gi)){
+      const fields=[...m[2].matchAll(/<input\b[^>]*>/gi)].map(x=>attribute(x[0]));
+      if(!fields.some(x=>x.name==="MAIL") || !fields.some(x=>x.name==="SCHUELERCODE")) continue;
+      const form=attribute(m[1]);
+      let action; try{action=new URL(form.action||"",PORTAL_LOGIN);}catch(e){throw fehler();}
+      if(form.method?.toLowerCase()!=="post" || !portalUrlErlaubt(action.href) || action.pathname!=="/index.php" || action.search || action.hash) throw fehler();
+      const names=fields.filter(x=>x.name==="formName" && x.type?.toLowerCase()==="hidden");
+      if(names.length!==1 || !/^stacks_in_\d+(?:_page\d+)?$/.test(names[0].value||"")) throw fehler();
+      if(!fields.some(x=>x.name==="formAction" && x.type?.toLowerCase()==="hidden")) throw fehler();
+      gefunden.push(names[0].value);
+    }
+    if(gefunden.length!==1) throw fehler();
+    return gefunden[0];
+  }
+  function portalLoginRequest(benutzer,passwort,formName){
     const user=text(benutzer,254), pass=String(passwort??"");
     if(!user || !pass || pass.length>2048) throw Object.assign(new Error("Benutzer und Passwort fehlen."),{code:"LOGIN_DATEN_FEHLEN"});
+    if(!/^stacks_in_\d+(?:_page\d+)?$/.test(formName||"")) throw Object.assign(new Error("Portal-Formularkennung fehlt."),{code:"PARSER_FEHLER"});
     return {
       url:PORTAL_LOGIN, method:"POST", timeoutMs:15000, maxBytes:MAX_RESPONSE,
       headers:{"Content-Type":"application/x-www-form-urlencoded","Accept":"text/html,*/*"},
-      body:formEncode({MAIL:user,SCHUELERCODE:pass,formAction:"login",formName:"stacks_in_368_page1"})
+      body:formEncode({MAIL:user,SCHUELERCODE:pass,formAction:"login",formName})
     };
   }
   function portalDayRequest(d){
@@ -226,6 +254,7 @@
       if(!this.adapter || typeof this.adapter.anfrage!=="function" || typeof this.adapter.parse!=="function")
         throw Object.assign(new Error("Portal-Protokoll ist noch nicht konfiguriert."),{code:"PROTOKOLL_FEHLT"});
       const req=await this.adapter.anfrage(ctx);
+      if(!portalUrlErlaubt(req?.url)) throw Object.assign(new Error("Nur virtueller-stundenplan.org wird unterstützt."),{code:"PORTAL_URL_UNGUELTIG"});
       const antwort=await this.bridge.request({...req,maxBytes:this.maxResponseBytes});
       if(!antwort || typeof antwort.status!=="number")
         throw Object.assign(new Error("Ungültige Antwort der Netzwerkbrücke."),{code:"ANTWORT_UNGUELTIG"});
@@ -264,7 +293,7 @@
     _bereit(){ if(!this.bridge?.request) throw Object.assign(new Error("Native Portal-Brücke nicht verfügbar."),{code:"BRIDGE_FEHLT"}); }
     async _tag(d){
       this._bereit();
-      const a=await this.bridge.request({...portalDayRequest(d),maxBytes:this.maxResponseBytes});
+      const a=await this.bridge.request({...portalDayRequest(d),maxBytes:this.maxResponseBytes,sessionScope:this.secretScope});
       if(!a || typeof a.status!=="number") throw Object.assign(new Error("Ungültige Portalantwort."),{code:"ANTWORT_UNGUELTIG"});
       if(a.status===401 || a.status===403 || (a.status>=300&&a.status<400) || portalIstLoginHtml(a.body))
         throw Object.assign(new Error("Portal-Anmeldung ist nicht gültig."),{code:"LOGIN_FEHLER",status:a.status});
@@ -274,8 +303,14 @@
     async anmelden({benutzer,passwort,merken=true,datum:tag}={}){
       this._bereit();
       const user=text(benutzer,254), pass=String(passwort??"");
-      const a=await this.bridge.request({...portalLoginRequest(user,pass),maxBytes:this.maxResponseBytes});
-      if(!a || typeof a.status!=="number" || a.status===401 || a.status===403 || a.status>=500)
+      if(!user || !pass || pass.length>2048) throw Object.assign(new Error("Benutzer und Passwort fehlen."),{code:"LOGIN_DATEN_FEHLEN"});
+      const form=await this.bridge.request({url:PORTAL_LOGIN,method:"GET",timeoutMs:15000,maxBytes:this.maxResponseBytes,
+        sessionScope:this.secretScope,resetSession:true,headers:{Accept:"text/html,*/*"}});
+      if(!form || typeof form.status!=="number" || form.status<200 || form.status>=300)
+        throw Object.assign(new Error("Portal-Anmeldeformular konnte nicht geladen werden."),{code:"HTTP_FEHLER",status:form?.status});
+      const formName=portalLoginForm(form.body);
+      const a=await this.bridge.request({...portalLoginRequest(user,pass,formName),maxBytes:this.maxResponseBytes,sessionScope:this.secretScope});
+      if(!a || typeof a.status!=="number" || a.status<200 || a.status>=300 || portalIstLoginHtml(a.body))
         throw Object.assign(new Error("Anmeldung beim Virtuellen Stundenplan fehlgeschlagen."),{code:"LOGIN_FEHLER",status:a?.status});
       const d=datum(tag)||new Date().toISOString().slice(0,10);
       const rows=await this._tag(d);
@@ -305,6 +340,7 @@
     }
     async tagAbrufen(d){ return this._tag(d); }
     async abmelden(){
+      if(this.bridge?.clearSession) await this.bridge.clearSession({sessionScope:this.secretScope});
       if(this.bridge?.secureRemove){
         await this.bridge.secureRemove({key:this._secretKey(PORTAL_SECRET_USER)});
         await this.bridge.secureRemove({key:this._secretKey(PORTAL_SECRET_PASSWORD)});
@@ -315,6 +351,6 @@
 
   return {MAX_RESPONSE,text,datum,slotZahlen,mapSlot,normalisieren,identKey,inhaltKey,
     cacheAktualisieren,cacheFuerDatum,cacheAlterMinuten,mappeTag,VPlanClient,bridgeAusGlobal,
-    PORTAL_LOGIN,PORTAL_DAY,formEncode,portalLoginRequest,portalDayRequest,portalIstLoginHtml,
+    PORTAL_LOGIN,PORTAL_DAY,formEncode,portalUrlErlaubt,portalLoginForm,portalLoginRequest,portalDayRequest,portalIstLoginHtml,
     htmlWerte,htmlFettWerte,portalTabelle,portalRowNormalisieren,parsePortalDayHtml,portalRowsZuSlots,PortalClient};
 });

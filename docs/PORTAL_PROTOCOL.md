@@ -13,9 +13,11 @@ Ein existierender Open-Source-Client (`LarvenStein/better-stundenplan`) verwende
 - `MAIL=<Benutzer oder Mailadresse>`
 - `SCHUELERCODE=<Passwort>`
 - `formAction=login`
-- `formName=stacks_in_368_page1`
+- Der ältere Drittclient verwendet `formName=stacks_in_368_page1`; das am 14.09.2026 direkt abgerufene Formular auf `/index.php` liefert jedoch **`formName=stacks_in_368`**. Das war die nicht mehr passende Konstante in xyz.
 - Sitzung über das vom Server gesetzte `PHPSESSID`-Cookie
 - Weiterleitungen nach dem Login werden verfolgt
+
+xyz 0.4.1 lädt vor jedem Login `/index.php` mit einer frischen, profilspezifischen Sitzung, prüft das Formularziel und liest den versteckten `formName`-Wert aus genau diesem Formular. Ohne eindeutig erkanntes Formular werden keine Zugangsdaten gesendet. Nach dem POST muss sowohl die Login-Antwort erfolgreich sein als auch ein Tagesplan lesbar sein.
 
 xyz 0.4.1 unterstützt **nur diesen direkten Formularweg auf `virtueller-stundenplan.org`**. Office 365 wird nicht nachgebaut oder geraten. Portal-Redirects werden nur über HTTPS und nur innerhalb derselben Domain verfolgt; eine Weiterleitung auf eine andere Domain wird abgebrochen.
 
@@ -43,7 +45,7 @@ Der bekannte Wochenlink `/page-5/index.php?KlaBuDatum=...&RES=` wird **nicht** a
 - Kein xyz-Server und kein eingebetteter GitHub- oder Portal-Token.
 - Passwort und Benutzerkennung werden bei „angemeldet bleiben“ ausschließlich über `VPlanBridge.secureSet` im Android-Keystore-geschützten Speicher abgelegt.
 - Zugangsdaten werden je xyz-Profil getrennt gespeichert.
-- Session-Cookies verbleiben im nativen Cookie-Container und werden nicht an JavaScript zurückgegeben.
+- Session-Cookies werden je Profil getrennt gehalten, beim Abmelden verworfen und verbleiben im nativen Cookie-Container und werden nicht an JavaScript zurückgegeben.
 - Portal-Tagesdaten werden getrennt von Planquellen und Merge-Regeln als lokaler Cache gespeichert.
 - Dieser Cache wird nicht in normalen xyz-Backups aufgenommen.
 - Beim Trennen werden gespeicherte Portal-Zugangsdaten und der lokale Portal-Cache entfernt.
@@ -55,3 +57,11 @@ Wenn die Tagesseite wieder auf eine Login-Seite oder einen Redirect zurückfäll
 
 Referenz für die beobachtete Drittclient-Implementierung:
 `https://github.com/LarvenStein/better-stundenplan`
+
+## Prüfung für 0.4.1
+
+- Regressionsfixture aus dem öffentlichen Loginformular vom 14.09.2026, ohne Cookies oder Kontodaten.
+- JavaScript-Tests prüfen Formularerkennung, Request-Reihenfolge, Fehlerantworten, Wiederanmeldung und Profilbindung.
+- Native Java-Tests prüfen Cookie-Übernahme, Profiltrennung, HTTPS-/Hostgrenzen, Redirect-Methoden, Schleifen und Größenlimits über simulierte Verbindungen.
+- CI prüft zusätzlich Android Lint, APK-Signatur, Manifest und Upgrade der bisherigen APK auf Android 35 mit Datenerhalt und App-Start.
+- Ein erfolgreicher Login mit einem echten Schulkonto ist ohne bereitgestelltes Testkonto nicht überprüft.

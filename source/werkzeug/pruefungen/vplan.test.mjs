@@ -1,4 +1,6 @@
 import test from "node:test";
+import {readFileSync} from "node:fs";
+const loginHtml=readFileSync(new URL("./fixtures/portal-login.html",import.meta.url),"utf8");
 import assert from "node:assert/strict";
 import "../../www/vplan.js";
 const V=globalThis.XyzVPlan;
@@ -30,11 +32,11 @@ test("22 Steuerzeichen entfernt",()=>assert.equal(V.text("MA\u0000<script>"),"MA
 test("23 HTML bleibt Textdaten und wird nicht interpretiert",()=>assert.equal(V.normalisieren(e({hinweis:"<img src=x onerror=alert(1)>"})).hinweis,"<img src=x onerror=alert(1)>"));
 test("24 Client verweigert ohne native Brücke",async()=>{await assert.rejects(()=>new V.VPlanClient({bridge:null,adapter:{}}).abrufen(),x=>x.code==="BRIDGE_FEHLT")});
 test("25 Client verweigert unbekanntes Portalprotokoll",async()=>{const bridge={request:async()=>({status:200,body:"x"})};await assert.rejects(()=>new V.VPlanClient({bridge}).abrufen(),x=>x.code==="PROTOKOLL_FEHLT")});
-test("26 HTTP 401 wird Loginfehler",async()=>{const bridge={request:async()=>({status:401,body:""})},adapter={anfrage:async()=>({url:"https://example.invalid"}),parse:async()=>[]};await assert.rejects(()=>new V.VPlanClient({bridge,adapter}).abrufen(),x=>x.code==="LOGIN_FEHLER")});
-test("27 HTTP Fehler bleibt HTTP Fehler",async()=>{const bridge={request:async()=>({status:503,body:""})},adapter={anfrage:async()=>({}),parse:async()=>[]};await assert.rejects(()=>new V.VPlanClient({bridge,adapter}).abrufen(),x=>x.code==="HTTP_FEHLER"&&x.status===503)});
-test("28 Parserfehler wird gekapselt",async()=>{const bridge={request:async()=>({status:200,body:"kaputt"})},adapter={anfrage:async()=>({}),parse:async()=>{throw new Error("bad")}};await assert.rejects(()=>new V.VPlanClient({bridge,adapter}).abrufen(),x=>x.code==="PARSER_FEHLER")});
-test("29 Parser muss Array liefern",async()=>{const bridge={request:async()=>({status:200,body:"{}"})},adapter={anfrage:async()=>({}),parse:async()=>({})};await assert.rejects(()=>new V.VPlanClient({bridge,adapter}).abrufen(),x=>x.code==="PARSER_FEHLER")});
-test("30 Erfolgsfall stempelt Abrufzeit",async()=>{const bridge={request:async()=>({status:200,body:"[]"})},adapter={anfrage:async()=>({}),parse:async()=>[e()]};const r=await new V.VPlanClient({bridge,adapter}).abrufen();assert.ok(r[0].abgerufenAm)});
+test("26 HTTP 401 wird Loginfehler",async()=>{const bridge={request:async()=>({status:401,body:""})},adapter={anfrage:async()=>({url:V.PORTAL_DAY}),parse:async()=>[]};await assert.rejects(()=>new V.VPlanClient({bridge,adapter}).abrufen(),x=>x.code==="LOGIN_FEHLER")});
+test("27 HTTP Fehler bleibt HTTP Fehler",async()=>{const bridge={request:async()=>({status:503,body:""})},adapter={anfrage:async()=>({url:V.PORTAL_DAY}),parse:async()=>[]};await assert.rejects(()=>new V.VPlanClient({bridge,adapter}).abrufen(),x=>x.code==="HTTP_FEHLER"&&x.status===503)});
+test("28 Parserfehler wird gekapselt",async()=>{const bridge={request:async()=>({status:200,body:"kaputt"})},adapter={anfrage:async()=>({url:V.PORTAL_DAY}),parse:async()=>{throw new Error("bad")}};await assert.rejects(()=>new V.VPlanClient({bridge,adapter}).abrufen(),x=>x.code==="PARSER_FEHLER")});
+test("29 Parser muss Array liefern",async()=>{const bridge={request:async()=>({status:200,body:"{}"})},adapter={anfrage:async()=>({url:V.PORTAL_DAY}),parse:async()=>({})};await assert.rejects(()=>new V.VPlanClient({bridge,adapter}).abrufen(),x=>x.code==="PARSER_FEHLER")});
+test("30 Erfolgsfall stempelt Abrufzeit",async()=>{const bridge={request:async()=>({status:200,body:"[]"})},adapter={anfrage:async()=>({url:V.PORTAL_DAY}),parse:async()=>[e()]};const r=await new V.VPlanClient({bridge,adapter}).abrufen();assert.ok(r[0].abgerufenAm)});
 test("31 Secure Storage Setter nutzt Brücke",async()=>{let got;const bridge={request:async()=>({}),secureSet:async x=>(got=x,{ok:true})};await new V.VPlanClient({bridge,adapter:{}}).geheimnisSetzen("passwort","secret");assert.deepEqual(got,{key:"passwort",value:"secret"})});
 
 const portalHtml=`<!doctype html><html><body>
@@ -43,7 +45,7 @@ const portalHtml=`<!doctype html><html><body>
 <div data-title="Raum"><table id="editableTable"><tr><th>Std.</th><th>Raum</th></tr><tr><td>1</td><td>101</td></tr><tr><td>2</td><td><b>204</b></td></tr><tr><td>3/4</td><td>301<br>302</td></tr><tr><td>5</td><td>-</td></tr></table></div>
 </body></html>`;
 
-test("32 Login-Request nutzt belegte Portalparameter",()=>{const r=V.portalLoginRequest("a+b@example.org","p&x");assert.equal(r.url,V.PORTAL_LOGIN);assert.match(r.body,/MAIL=a%2Bb%40example\.org/);assert.match(r.body,/SCHUELERCODE=p%26x/);assert.match(r.body,/formAction=login/);assert.match(r.body,/formName=stacks_in_368_page1/)});
+test("32 Login-Request nutzt belegte Portalparameter",()=>{const r=V.portalLoginRequest("a+b@example.org","p&x",V.portalLoginForm(loginHtml));assert.equal(r.url,V.PORTAL_LOGIN);assert.match(r.body,/MAIL=a%2Bb%40example\.org/);assert.match(r.body,/SCHUELERCODE=p%26x/);assert.match(r.body,/formAction=login/);assert.match(r.body,/formName=stacks_in_368$/)});
 test("33 Portal-Datum wird deutsch übertragen",()=>assert.match(V.portalDayRequest("2026-09-14").url,/KlaBuDatum=14\.09\.2026/));
 test("34 ungültiges Portal-Datum abgelehnt",()=>assert.throws(()=>V.portalDayRequest("14.09.2026"),x=>x.code==="DATUM_UNGUELTIG"));
 test("35 Login-HTML wird erkannt",()=>assert.equal(V.portalIstLoginHtml('<form><input name="SCHUELERCODE"><input name="formName" value="stacks_in_368_page1"></form>'),true));
@@ -59,7 +61,73 @@ test("44 Seite ohne Tabellen wird abgelehnt",()=>assert.throws(()=>V.parsePortal
 test("45 Einzelstunden landen im 90-Minuten-Block",()=>{const r=V.portalRowsZuSlots([{slot:"1",fach:"MA"},{slot:"2",fach:"MA"}],slots);assert.equal(r.gruppen[0].index,0);assert.equal(r.gruppen[0].effektiv.fach,"MA")});
 test("46 verschiedene Einzelstunden werden transparent zusammengefasst",()=>{const r=V.portalRowsZuSlots([{slot:"1",fach:"MA"},{slot:"2",fach:"PH"}],slots);assert.equal(r.gruppen[0].effektiv.fach,"MA / PH")});
 test("47 unbekannte Portalstunde wird Hinweis",()=>{const r=V.portalRowsZuSlots([{slot:"99",fach:"MA"}],slots);assert.equal(r.hinweise.length,1)});
-test("48 PortalClient erkennt Redirect als Loginfehler",async()=>{const bridge={request:async req=>req.method==="POST"?{status:302,body:""}:{status:302,body:""}};await assert.rejects(()=>new V.PortalClient({bridge}).anmelden({benutzer:"x",passwort:"y",datum:"2026-09-14"}),x=>x.code==="LOGIN_FEHLER")});
-test("49 PortalClient speichert Zugangsdaten nur bei Merken",async()=>{const writes=[];const bridge={request:async req=>req.method==="POST"?{status:302,body:""}:{status:200,body:portalHtml},secureSet:async x=>writes.push(x),secureRemove:async()=>{}};const r=await new V.PortalClient({bridge}).anmelden({benutzer:"user",passwort:"pw",merken:true,datum:"2026-09-14"});assert.equal(r.rows.length,4);assert.deepEqual(writes.map(x=>x.key),["portal.user","portal.password"])});
-test("50 PortalClient entfernt gespeicherte Daten bei Merken aus",async()=>{const removed=[];const bridge={request:async req=>req.method==="POST"?{status:200,body:""}:{status:200,body:portalHtml},secureRemove:async x=>removed.push(x.key)};await new V.PortalClient({bridge}).anmelden({benutzer:"user",passwort:"pw",merken:false,datum:"2026-09-14"});assert.deepEqual(removed,["portal.user","portal.password"])});
-test("51 Portal-Zugangsdaten sind je Profil getrennt",async()=>{const writes=[];const bridge={request:async req=>req.method==="POST"?{status:200,body:""}:{status:200,body:portalHtml},secureSet:async x=>writes.push(x),secureRemove:async()=>{}};await new V.PortalClient({bridge,secretScope:"profil-2"}).anmelden({benutzer:"user",passwort:"pw",merken:true,datum:"2026-09-14"});assert.deepEqual(writes.map(x=>x.key),["portal.user.profil-2","portal.password.profil-2"])});
+test("48 PortalClient erkennt Redirect als Loginfehler",async()=>{const bridge={request:async req=>req.resetSession?{status:200,body:loginHtml}:req.method==="POST"?{status:302,body:""}:{status:302,body:""}};await assert.rejects(()=>new V.PortalClient({bridge}).anmelden({benutzer:"x",passwort:"y",datum:"2026-09-14"}),x=>x.code==="LOGIN_FEHLER")});
+test("49 PortalClient speichert Zugangsdaten nur bei Merken",async()=>{const writes=[];const bridge={request:async req=>req.resetSession?{status:200,body:loginHtml}:req.method==="POST"?{status:200,body:""}:{status:200,body:portalHtml},secureSet:async x=>writes.push(x),secureRemove:async()=>{}};const r=await new V.PortalClient({bridge}).anmelden({benutzer:"user",passwort:"pw",merken:true,datum:"2026-09-14"});assert.equal(r.rows.length,4);assert.deepEqual(writes.map(x=>x.key),["portal.user","portal.password"])});
+test("50 PortalClient entfernt gespeicherte Daten bei Merken aus",async()=>{const removed=[];const bridge={request:async req=>req.resetSession?{status:200,body:loginHtml}:req.method==="POST"?{status:200,body:""}:{status:200,body:portalHtml},secureRemove:async x=>removed.push(x.key)};await new V.PortalClient({bridge}).anmelden({benutzer:"user",passwort:"pw",merken:false,datum:"2026-09-14"});assert.deepEqual(removed,["portal.user","portal.password"])});
+test("51 Portal-Zugangsdaten sind je Profil getrennt",async()=>{const writes=[];const bridge={request:async req=>req.resetSession?{status:200,body:loginHtml}:req.method==="POST"?{status:200,body:""}:{status:200,body:portalHtml},secureSet:async x=>writes.push(x),secureRemove:async()=>{}};await new V.PortalClient({bridge,secretScope:"profil-2"}).anmelden({benutzer:"user",passwort:"pw",merken:true,datum:"2026-09-14"});assert.deepEqual(writes.map(x=>x.key),["portal.user.profil-2","portal.password.profil-2"])});
+
+test("52 aktuelle Live-Formularkennung statt alter Page-ID",()=>{
+  assert.equal(V.portalLoginForm(loginHtml),"stacks_in_368");
+  assert.equal(V.portalLoginForm(loginHtml.replaceAll("stacks_in_368","stacks_in_999")),"stacks_in_999");
+});
+test("53 fehlendes oder mehrdeutiges Formular wird abgelehnt",()=>{
+  for(const html of ["<html>Wartung</html>",loginHtml+loginHtml,loginHtml.replace('name="formName"','name="unknown"')])
+    assert.throws(()=>V.portalLoginForm(html),e=>e.code==="PARSER_FEHLER");
+});
+test("54 fremde und unsichere Formularziele werden abgelehnt",()=>{
+  for(const action of ["https://example.org/index.php","http://virtueller-stundenplan.org/index.php","https://user@virtueller-stundenplan.org/index.php","https://virtueller-stundenplan.org:444/index.php","/unknown.php"])
+    assert.throws(()=>V.portalLoginForm(loginHtml.replace('action="/index.php"',`action="${action}"`)),e=>e.code==="PARSER_FEHLER");
+});
+test("55 Formularattribute mit Einzelquotes und HTML-Kommentaren",()=>{
+  assert.equal(V.portalLoginForm(`<!-- ${loginHtml} -->`+loginHtml.replaceAll('"',"'")),"stacks_in_368");
+});
+test("56 Login lädt Formular vor POST und Tagesplan im selben Profil",async()=>{
+  const calls=[];
+  const bridge={request:async req=>{calls.push(req);return {status:200,body:req.resetSession?loginHtml:req.method==="POST"?"ok":portalHtml};},secureRemove:async()=>{}};
+  await new V.PortalClient({bridge,secretScope:"2"}).anmelden({benutzer:"a+b@example.org",passwort:"p &ü",merken:false,datum:"2026-09-14"});
+  assert.deepEqual(calls.map(x=>x.method),["GET","POST","GET"]);
+  assert.deepEqual(calls.map(x=>x.sessionScope),["2","2","2"]);
+  assert.equal(calls[0].resetSession,true);
+  assert.equal(calls[0].body,undefined);
+  assert.equal(new URLSearchParams(calls[1].body).get("formName"),"stacks_in_368");
+  assert.equal(new URLSearchParams(calls[1].body).get("SCHUELERCODE"),"p &ü");
+});
+test("57 fehlerhafter Login darf keinen alten Tagesplan als Erfolg melden",async()=>{
+  for(const response of [{status:200,body:loginHtml},{status:302,body:""},{status:400,body:""},{status:401,body:""},{status:403,body:""},{status:429,body:""},{status:503,body:""}]){
+    const calls=[], writes=[];
+    const bridge={request:async req=>{calls.push(req);return req.resetSession?{status:200,body:loginHtml}:response;},secureSet:async x=>writes.push(x)};
+    await assert.rejects(()=>new V.PortalClient({bridge}).anmelden({benutzer:"x",passwort:"y",datum:"2026-09-14"}),e=>e.code==="LOGIN_FEHLER");
+    assert.equal(calls.length,2);assert.equal(writes.length,0);
+  }
+});
+test("58 unlesbares Loginformular verhindert Passwort-POST",async()=>{
+  const calls=[];
+  const bridge={request:async req=>{calls.push(req);return {status:200,body:"<html>Wartung</html>"};}};
+  await assert.rejects(()=>new V.PortalClient({bridge}).anmelden({benutzer:"x",passwort:"y"}),e=>e.code==="PARSER_FEHLER");
+  assert.equal(calls.length,1);assert.equal(calls[0].method,"GET");
+});
+test("59 Abmelden entfernt die native Sitzung und nur eigene Geheimnisse",async()=>{
+  const calls=[];
+  const bridge={clearSession:async x=>calls.push(x),secureRemove:async x=>calls.push(x)};
+  await new V.PortalClient({bridge,secretScope:"p2"}).abmelden();
+  assert.deepEqual(calls,[{sessionScope:"p2"},{key:"portal.user.p2"},{key:"portal.password.p2"}]);
+});
+test("60 Wiederherstellen verwendet erneut das aktuelle Formular",async()=>{
+  const calls=[];
+  const bridge={secureGet:async({key})=>({value:key.includes("password")?"pw":"user"}),secureSet:async()=>{},request:async req=>{
+    calls.push(req);return {status:200,body:req.resetSession?loginHtml:req.method==="POST"?"ok":portalHtml};
+  }};
+  const r=await new V.PortalClient({bridge,secretScope:"p3"}).wiederherstellen("2026-09-14");
+  assert.equal(r.angemeldet,true);assert.equal(calls[0].resetSession,true);assert.equal(calls[1].sessionScope,"p3");
+});
+test("61 ausschließlich exakte Portal-Origin",()=>{
+  for(const url of [V.PORTAL_LOGIN,V.PORTAL_DAY,"https://virtueller-stundenplan.org:443/page2/"]) assert.equal(V.portalUrlErlaubt(url),true);
+  for(const url of ["https://example.org/","http://virtueller-stundenplan.org/","https://virtueller-stundenplan.org.evil.org/","https://virtueller-stundenplan.org:444/","https://user@virtueller-stundenplan.org/"]) assert.equal(V.portalUrlErlaubt(url),false);
+});
+test("62 generischer Adapter kann keinen anderen Dienst aufrufen",async()=>{
+  let requested=false;
+  const bridge={request:async()=>{requested=true;}};
+  const adapter={anfrage:async()=>({url:"https://example.org"}),parse:async()=>[]};
+  await assert.rejects(()=>new V.VPlanClient({bridge,adapter}).abrufen(),e=>e.code==="PORTAL_URL_UNGUELTIG");
+  assert.equal(requested,false);
+});

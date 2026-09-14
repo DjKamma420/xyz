@@ -10,36 +10,25 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.CookieManager;
-import java.net.CookiePolicy;
-import java.net.URI;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
-import java.util.Collections;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
-import javax.net.ssl.HttpsURLConnection;
 
 @CapacitorPlugin(name = "VPlanBridge")
 public class VPlanPlugin extends Plugin {
     private static final String STORE = "xyz_vplan_secure";
     private static final String KEY_ALIAS = "xyz_vplan_aes_v1";
-    private static final String PORTAL_HOST = "virtueller-stundenplan.org";
     private static final int MAX_HARD_BYTES = 4 * 1024 * 1024;
-    private static final int MAX_PORTAL_REDIRECTS = 5;
     private final ExecutorService network = Executors.newSingleThreadExecutor();
-    private final CookieManager cookies = new CookieManager(null, CookiePolicy.ACCEPT_ORIGINAL_SERVER);
+    private final PortalHttpClient portal = new PortalHttpClient();
 
     @Override
     protected void handleOnDestroy() {
@@ -113,125 +102,44 @@ public class VPlanPlugin extends Plugin {
 
     @PluginMethod
     public void secureClear(PluginCall call) {
-        prefs().edit().clear().apply(); cookies.getCookieStore().removeAll(); call.resolve();
+        network.execute(() -> { prefs().edit().clear().apply(); portal.clearAll(); call.resolve(); });
+    }
+
+    @PluginMethod
+    public void clearSession(PluginCall call) {
+        String scope = call.getString("sessionScope", "");
+        network.execute(() -> {
+            try { portal.clearSession(scope); call.resolve(); }
+            catch (IllegalArgumentException e) { call.reject("Ungültiges Portal-Profil.", "INVALID_ARGUMENT"); }
+        });
     }
 
     @PluginMethod
     public void request(PluginCall call) {
-        final String url = call.getString("url");
+        final String url = call.getString("url", "");
         final String method = call.getString("method", "GET");
         final String body = call.getString("body", "");
-        final JSObject headers = call.getObject("headers", new JSObject());
+        final String scope = call.getString("sessionScope", "");
+        final boolean reset = Boolean.TRUE.equals(call.getBoolean("resetSession", false));
+        final JSObject supplied = call.getObject("headers", new JSObject());
+        final Map<String, String> headers = new HashMap<>();
+        Iterator<String> it = supplied.keys();
+        while (it.hasNext()) { String key = it.next(); headers.put(key, supplied.optString(key, "")); }
         final int timeout = Math.min(Math.max(call.getInt("timeoutMs", 10000), 1000), 30000);
         final int maxBytes = Math.min(Math.max(call.getInt("maxBytes", 1024 * 1024), 1024), MAX_HARD_BYTES);
-        network.execute(() -> doRequest(call, url, method, body, headers, timeout, maxBytes));
-    }
-
-    private void doRequest(PluginCall call, String urlText, String methodRaw, String body, JSObject headers, int timeout, int maxBytes) {
-        HttpsURLConnection conn = null;
-        try {
-            if (urlText == null) throw new IllegalArgumentException("URL fehlt");
-            URL currentUrl = new URL(urlText);
-            if (!"https".equalsIgnoreCase(currentUrl.getProtocol())) throw new IllegalArgumentException("Nur HTTPS ist erlaubt");
-            String currentMethod = methodRaw == null ? "GET" : methodRaw.toUpperCase();
-            if (!(currentMethod.equals("GET") || currentMethod.equals("POST") || currentMethod.equals("HEAD"))) throw new IllegalArgumentException("HTTP-Methode nicht erlaubt");
-            final boolean portalLogin = currentMethod.equals("POST") && isPortalLoginUrl(currentUrl);
-            int redirects = 0;
-
-            while (true) {
-                URI uri = currentUrl.toURI();
-                conn = (HttpsURLConnection) currentUrl.openConnection();
-                conn.setInstanceFollowRedirects(false);
-                conn.setConnectTimeout(timeout);
-                conn.setReadTimeout(timeout);
-                conn.setRequestMethod(currentMethod);
-                conn.setRequestProperty("Accept", "application/json,text/html,text/plain,*/*");
-                conn.setRequestProperty("User-Agent", "xyz-android/0.4.1");
-                Map<String,List<String>> cookieHeaders = cookies.get(uri, Collections.emptyMap());
-                for (Map.Entry<String,List<String>> h : cookieHeaders.entrySet()) if (h.getKey() != null && !h.getValue().isEmpty()) conn.setRequestProperty(h.getKey(), String.join("; ", h.getValue()));
-                if (headers != null) {
-                    Iterator<String> it = headers.keys();
-                    while (it.hasNext()) {
-                        String k = it.next();
-                        if (!safeHeaderName(k)) continue;
-                        String v = headers.optString(k, "");
-                        if (!v.contains("\r") && !v.contains("\n")) conn.setRequestProperty(k, v);
-                    }
-                }
-                if (currentMethod.equals("POST")) {
-                    byte[] requestBytes = (body == null ? "" : body).getBytes(StandardCharsets.UTF_8);
-                    if (requestBytes.length > maxBytes) throw new IllegalArgumentException("Request zu groß");
-                    conn.setDoOutput(true);
-                    conn.setFixedLengthStreamingMode(requestBytes.length);
-                    try (OutputStream out = conn.getOutputStream()) { out.write(requestBytes); }
-                }
-                int status = conn.getResponseCode();
-                cookies.put(uri, conn.getHeaderFields());
-                if (portalLogin && isRedirect(status)) {
-                    String location = conn.getHeaderField("Location");
-                    if (location == null || location.trim().isEmpty()) break;
-                    if (++redirects > MAX_PORTAL_REDIRECTS) throw new IllegalStateException("Zu viele Portal-Weiterleitungen");
-                    URL next = new URL(currentUrl, location);
-                    if (!isPortalUrl(next)) throw new SecurityException("Portal-Weiterleitung verlässt virtueller-stundenplan.org");
-                    if (currentMethod.equals("POST") && (status == 301 || status == 302 || status == 303)) currentMethod = "GET";
-                    conn.disconnect(); conn = null; currentUrl = next; continue;
-                }
-                long declared = conn.getContentLengthLong();
-                if (declared > maxBytes) throw new IllegalStateException("Antwort zu groß");
-                InputStream in = status >= 400 ? conn.getErrorStream() : conn.getInputStream();
-                byte[] responseBytes = readLimited(in, maxBytes);
+        network.execute(() -> {
+            try {
+                PortalHttpClient.Response response = portal.request(url, method, body, headers, scope, reset, timeout, maxBytes);
                 JSObject out = new JSObject();
-                out.put("status", status);
-                out.put("body", new String(responseBytes, StandardCharsets.UTF_8));
-                out.put("contentType", conn.getContentType() == null ? "" : conn.getContentType());
-                out.put("date", conn.getHeaderField("Date") == null ? "" : conn.getHeaderField("Date"));
-                out.put("url", currentUrl.toString());
-                call.resolve(out); return;
-            }
-            int status = conn.getResponseCode();
-            long declared = conn.getContentLengthLong();
-            if (declared > maxBytes) throw new IllegalStateException("Antwort zu groß");
-            InputStream in = status >= 400 ? conn.getErrorStream() : conn.getInputStream();
-            byte[] responseBytes = readLimited(in, maxBytes);
-            JSObject out = new JSObject();
-            out.put("status", status);
-            out.put("body", new String(responseBytes, StandardCharsets.UTF_8));
-            out.put("contentType", conn.getContentType() == null ? "" : conn.getContentType());
-            out.put("date", conn.getHeaderField("Date") == null ? "" : conn.getHeaderField("Date"));
-            out.put("url", currentUrl.toString());
-            call.resolve(out);
-        } catch (java.net.SocketTimeoutException e) { call.reject("Zeitüberschreitung bei der Netzwerkanfrage.", "TIMEOUT"); }
-        catch (Exception e) { call.reject("Netzwerkanfrage fehlgeschlagen.", "NETWORK_ERROR"); }
-        finally { if (conn != null) conn.disconnect(); }
-    }
-
-    private static boolean isPortalLoginUrl(URL url) {
-        if (!isPortalUrl(url)) return false;
-        String path = url.getPath();
-        return path == null || path.isEmpty() || "/".equals(path) || "/index.php".equals(path);
-    }
-
-    private static boolean isPortalUrl(URL url) {
-        if (url == null || !"https".equalsIgnoreCase(url.getProtocol())) return false;
-        if (!PORTAL_HOST.equalsIgnoreCase(url.getHost())) return false;
-        int port = url.getPort();
-        return port == -1 || port == 443;
-    }
-
-    private static boolean isRedirect(int status) { return status == 301 || status == 302 || status == 303 || status == 307 || status == 308; }
-
-    private static boolean safeHeaderName(String k) {
-        if (k == null || !k.matches("[A-Za-z0-9-]{1,80}")) return false;
-        String x = k.toLowerCase();
-        return !(x.equals("host") || x.equals("content-length") || x.equals("cookie") || x.equals("set-cookie"));
-    }
-
-    private static byte[] readLimited(InputStream in, int maxBytes) throws Exception {
-        if (in == null) return new byte[0];
-        try (InputStream src = in; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            byte[] buf = new byte[8192]; int total = 0, n;
-            while ((n = src.read(buf)) != -1) { total += n; if (total > maxBytes) throw new IllegalStateException("Antwort zu groß"); out.write(buf, 0, n); }
-            return out.toByteArray();
-        }
+                out.put("status", response.status);
+                out.put("body", response.body);
+                out.put("contentType", response.contentType == null ? "" : response.contentType);
+                out.put("date", response.date == null ? "" : response.date);
+                out.put("url", response.url);
+                call.resolve(out);
+            } catch (java.net.SocketTimeoutException e) { call.reject("Zeitüberschreitung bei der Netzwerkanfrage.", "TIMEOUT"); }
+            catch (SecurityException e) { call.reject("Nur HTTPS auf virtueller-stundenplan.org wird unterstützt.", "PORTAL_URL_UNGUELTIG"); }
+            catch (Exception e) { call.reject("Portal-Netzwerkanfrage fehlgeschlagen.", "NETWORK_ERROR"); }
+        });
     }
 }

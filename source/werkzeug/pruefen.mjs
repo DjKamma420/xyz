@@ -14,5 +14,12 @@ check('Manueller Planstift aus normaler UI entfernt',()=>{if(!/id="btnEdit"[^>]*
 check('Module vor app.js geladen',()=>{if(!/mehrplan\.js"><\/script>\s*<script src="vplan\.js"><\/script>\s*<script src="app\.js/.test(read('index.html')))throw Error('Reihenfolge falsch');return 'ok'});
 check('Native Zusatzmodule werden nur nativ nachgeladen',()=>{const js=read('vplan.js');if(!js.includes('updater.js')||!js.includes('portal.js')||!js.includes('isNativePlatform'))throw Error('native Loader fehlt');return 'Updater + Portal'});
 check('Portal speichert keine Passwörter im Webspeicher',()=>{const js=read('portal.js');if(/localStorage\.setItem\([^\n]*(pass|password|portalUser|portalPass)/i.test(js))throw Error('möglicher Zugangsdaten-Speicherpfad');return 'Keystore-Brücke'});
+check('Android- und Paketversion stimmen überein',()=>{
+  const pkg=JSON.parse(fs.readFileSync(new URL('../package.json',import.meta.url),'utf8'));
+  const gradle=fs.readFileSync(new URL('../android/app/build.gradle',import.meta.url),'utf8');
+  const version=gradle.match(/versionName '([^']+)'/)?.[1];
+  if(version!==pkg.version)throw Error(`Android ${version}, Paket ${pkg.version}`);
+  return version;
+});
 console.log(fail?`\n${fail} Prüfung(en) fehlgeschlagen.`:'\nAlle Prüfungen bestanden.');
 process.exit(fail?1:0);

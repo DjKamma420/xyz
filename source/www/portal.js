@@ -23,6 +23,7 @@
       return c;
     }catch(e){return {fassung:1,tage:{}};}
   }
+  root.XyzPortal={hatTag:d=>!!cacheLesen().tage[d]};
   function cacheSchreiben(c){
     try{localStorage.setItem(cacheKey(),JSON.stringify(c));}catch(e){}
   }
@@ -76,6 +77,7 @@
     try{
       const d=ausgewaehltesDatum(), c=cacheLesen(), tag=d&&c.tage[d];
       if(!d||!tag){portalBanner(null,null,0);return;}
+      if(!root.document.querySelector("#plan .block") && typeof root.zeichne==="function") root.zeichne();
       const slots=cfgSlots(); if(!slots.length) return;
       const m=V.portalRowsZuSlots(tag.rows,slots);
       for(const g of m.gruppen){
@@ -161,7 +163,7 @@
   async function trennen(){
     if(laeuft)return;
     busy(true);
-    try{await client().abmelden();angemeldet=false;cacheLeeren();status("Portal-Verbindung auf diesem Gerät getrennt.");overlayAnwenden();}
+    try{await client().abmelden();angemeldet=false;cacheLeeren();if(typeof root.zeichne==="function")root.zeichne();status("Portal-Verbindung auf diesem Gerät getrennt.");overlayAnwenden();}
     catch(e){status(fehlerText(e),true);} finally{busy(false);}
   }
   async function autoStart(){
@@ -184,7 +186,7 @@
     const section=root.document.querySelector('.einstTeil[data-einst="stundenplaene"]'); if(!section)return false;
     const box=root.document.createElement("div"); box.id="portalBox"; box.className="karte"; box.style.cssText="padding:14px;margin:16px 0";
     box.innerHTML=`<div class="eyebrow">Virtueller Stundenplan</div>
-      <p class="hinweis">Direkte Verbindung zu <b>virtueller-stundenplan.org</b>. Zugangsdaten gehen nur vom Gerät zum Schulportal. Office 365 wird noch nicht unterstützt.</p>
+      <p class="hinweis">Direkte Verbindung zu <b>virtueller-stundenplan.org</b>. Zugangsdaten gehen nur vom Gerät zum Schulportal. Office 365 wird nicht unterstützt.</p>
       <label><span>Benutzer / Mailadresse</span><input type="text" id="portalUser" maxlength="254" autocomplete="username" autocapitalize="none"></label>
       <label><span>Passwort</span><input type="password" id="portalPass" maxlength="2048" autocomplete="current-password"></label>
       <label style="display:flex;align-items:center;gap:10px;margin-top:10px"><input type="checkbox" id="portalMerken" checked style="width:18px;flex:none;margin:0"><span style="letter-spacing:0;text-transform:none;font-family:var(--sans);font-size:14px;color:var(--text)">Auf diesem Gerät angemeldet bleiben</span></label>
