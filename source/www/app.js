@@ -612,11 +612,11 @@ function zeichneTag(){
     </button>`;
   }).join("");
 
-  if(!planQuellen.length){
+  if(!planQuellen.length && !window.XyzPortal?.hatTag(iso(gewaehlt))){
     $("#plan").innerHTML = `<div class="karte" style="margin-top:14px;text-align:center;padding:28px 18px">
       <div class="eyebrow">Noch kein Stundenplan</div>
-      <p class="hinweis" style="margin:12px 0 18px">Verbinde deinen Stundenplan per HTTPS-Link. Die App aktualisiert verbundene Quellen automatisch.</p>
-      <button type="button" class="gross" data-planhinzu="1">Plan per Link verbinden</button>
+      <p class="hinweis" style="margin:12px 0 18px">Verbinde virtueller-stundenplan.org in den Einstellungen oder importiere einen lokalen Stundenplan.</p>
+      <button type="button" class="gross" data-planhinzu="1">Stundenplan verbinden</button>
     </div>`;
     zeichneFortschritt(); sicherungBanner();
     zeichneListe("#tagListe", "#tagNix", eintraegeAm(gewaehlt));
@@ -3912,84 +3912,18 @@ sSchrift.onchange = () => { cfg.schrift = sSchrift.value; themaAnwenden(); };
    ===================================================================== */
 let planUpdateId = null;
 let mergePrioritaet = [];
-let planLinkAktualisierungLaeuft = false;
-const PLAN_LINK_COOLDOWN_MS = 5 * 60 * 1000;
-
-function planLinkUrl(roh){
-  const t = String(roh || "").trim();
-  if(!t || t.length > 2048) return null;
-  try{
-    const u = new URL(t);
-    if(u.protocol !== "https:" || u.username || u.password) return null;
-    return u.href;
-  }catch(e){ return null; }
-}
-function planLinkHost(url){ try{ return new URL(url).host; }catch(e){ return "Link"; } }
-async function planLinkJsonHolen(url){
-  const gueltig = planLinkUrl(url);
-  if(!gueltig) throw new Error("Der Plan-Link muss eine gültige HTTPS-Adresse ohne eingebettete Zugangsdaten sein.");
-  let text = "";
-  if(istNative() && window.Capacitor?.Plugins?.VPlanBridge?.request){
-    const a = await window.Capacitor.Plugins.VPlanBridge.request({
-      url:gueltig, method:"GET", timeoutMs:15000, maxBytes:2*1024*1024,
-      headers:{Accept:"application/json,text/plain"}
-    });
-    if(!a || a.status < 200 || a.status >= 300) throw new Error(`Plan-Link antwortet mit HTTP ${a?.status ?? "?"}.`);
-    text = String(a.body || "");
-  }else{
-    const a = await fetch(gueltig,{cache:"no-store",credentials:"omit",referrerPolicy:"no-referrer"});
-    if(!a.ok) throw new Error(`Plan-Link antwortet mit HTTP ${a.status}.`);
-    text = await a.text();
-    if(text.length > 2*1024*1024) throw new Error("Die Antwort des Plan-Links ist zu groß.");
-  }
-  let d; try{ d = JSON.parse(text); }catch(e){ throw new Error("Der Plan-Link liefert kein gültiges JSON."); }
-  return d;
-}
-async function planQuelleVomLinkAktualisieren(q,{still=false,erzwingen=false}={}){
-  const v = q?.verbindung;
-  if(!q || v?.typ !== "url" || !planLinkUrl(v.url)) return false;
-  const altZeit = Date.parse(v.letzterAbrufAm || "") || 0;
-  if(!erzwingen && Date.now() - altZeit < PLAN_LINK_COOLDOWN_MS) return false;
-  try{
-    const d = await planLinkJsonHolen(v.url);
-    const jetzt = new Date().toISOString();
-    const r = planQuelleAusPaket(d,q.name,q.id,{typ:"url",url:v.url,letzterAbrufAm:jetzt,letzterFehler:""});
-    if(!r.ok) throw new Error(r.fehler);
-    if(!still) kurzHinweis(`„${q.name}“ wurde vom Link aktualisiert.`);
-    return true;
-  }catch(e){
-    const aktuell = planQuellen.find(x => x.id === q.id);
-    if(aktuell?.verbindung){ aktuell.verbindung.letzterFehler = String(e?.message || e).slice(0,240); sichern(); }
-    if(!still) alert(`Plan-Link konnte nicht aktualisiert werden: ${e?.message || e}`);
-    return false;
-  }
-}
-async function verbundenePlanquellenAktualisieren({erzwingen=false}={}){
-  if(planLinkAktualisierungLaeuft || datenZuNeu) return;
-  const qs = planQuellen.filter(q => q.aktiv !== false && q.verbindung?.typ === "url");
-  if(!qs.length) return;
-  planLinkAktualisierungLaeuft = true;
-  let geaendert = false;
-  try{
-    for(const q of qs) geaendert = (await planQuelleVomLinkAktualisieren(q,{still:true,erzwingen})) || geaendert;
-  }finally{ planLinkAktualisierungLaeuft = false; }
-  if(geaendert){ planQuellenZeichnen(); zeichne(); mergeAssistentStart(); }
-}
-
 function planQuellenZeichnen(){
   const liste = $("#sPlanQuellen"), regeln = $("#sMergeRegeln"), status = $("#sMergeStatus");
   if(!liste || !regeln || !status) return;
   liste.innerHTML = planQuellen.length ? planQuellen.map(q => {
     const aktiv = q.aktiv !== false;
     const n = ["A","B"].flatMap(w => TAGE.flatMap(t => (q.plan?.[w]?.[t] || []))).filter(Boolean).length;
-    const link = q.verbindung?.typ === "url" ? q.verbindung : null;
-    const linkStand = link?.letzterAbrufAm ? ` · zuletzt ${esc(new Date(link.letzterAbrufAm).toLocaleString())}` : "";
-    const linkFehler = link?.letzterFehler ? `<div class="detail" style="color:var(--akzent)">${esc(link.letzterFehler)}</div>` : "";
+    const alterLink = q.verbindung?.typ === "url";
     return `<div class="karte" style="padding:12px;margin-top:8px">
-      <div><b>${esc(q.name)}</b><div class="detail">${aktiv ? "aktiv" : "deaktiviert"} · ${zahl(n,"belegte Stunde","belegte Stunden")}${link ? ` · verbunden mit ${esc(planLinkHost(link.url))}${linkStand}` : " · Dateiquelle"}</div>${linkFehler}</div>
+      <div><b>${esc(q.name)}</b><div class="detail">${aktiv ? "aktiv" : "deaktiviert"} · ${zahl(n,"belegte Stunde","belegte Stunden")}${alterLink ? " · lokale Kopie (Link-Abruf eingestellt)" : " · Dateiquelle"}</div></div>
       <div class="chips" style="margin-top:8px">
         <button type="button" data-q-toggle="${esc(q.id)}">${aktiv ? "Deaktivieren" : "Aktivieren"}</button>
-        <button type="button" data-q-update="${esc(q.id)}">${link ? "Vom Link aktualisieren" : "Datei aktualisieren"}</button>
+        <button type="button" data-q-update="${esc(q.id)}">Datei aktualisieren</button>
         <button type="button" data-q-delete="${esc(q.id)}">Löschen</button>
       </div></div>`;
   }).join("") : `<p class="hinweis">Noch keine Planquelle gespeichert.</p>`;
@@ -4011,24 +3945,6 @@ function planQuellenZeichnen(){
   }).join("") : `<p class="hinweis">Keine gespeicherten Konfliktregeln.</p>`;
 }
 
-$("#sPlanLink").onclick = async () => {
-  const url = planLinkUrl($("#sPlanUrl").value);
-  if(!url) return alert("Trag einen gültigen HTTPS-Plan-Link ohne Zugangsdaten in der URL ein.");
-  const name = $("#sPlanName").value.trim() || planLinkHost(url);
-  $("#sPlanLink").disabled = true;
-  try{
-    const d = await planLinkJsonHolen(url);
-    const jetzt = new Date().toISOString();
-    const r = planQuelleAusPaket(d,name,null,{typ:"url",url,letzterAbrufAm:jetzt,letzterFehler:""});
-    if(!r.ok) return alert(r.fehler);
-    $("#sPlanName").value = ""; $("#sPlanUrl").value = "";
-    planQuellenZeichnen(); zeichne();
-    if(r.merge?.status !== "raster-konflikt") mergeAssistentStart();
-    kurzHinweis("Plan-Link verbunden. Künftige Aktualisierungen laufen automatisch.");
-    if(dlgEinst.open) einstStand = einstFelder();
-  }catch(e){ alert(`Plan-Link konnte nicht verbunden werden: ${e?.message || e}`); }
-  finally{ $("#sPlanLink").disabled = false; }
-};
 $("#sPlanDatei").onclick = () => { planUpdateId = null; $("#sPlanDateiLesen").click(); };
 $("#sPlanQuellen").onclick = e => {
   const toggle = e.target.closest("[data-q-toggle]");
@@ -4039,11 +3955,7 @@ $("#sPlanQuellen").onclick = e => {
     q.aktiv = q.aktiv === false; gesamtplanNeuBerechnen(); normalisiere(); sichern(); planQuellenZeichnen(); zeichne(); mergeAssistentStart();
   }else if(update){
     const q = planQuellen.find(x => x.id === update.dataset.qUpdate); if(!q) return;
-    if(q.verbindung?.typ === "url"){
-      planQuelleVomLinkAktualisieren(q,{erzwingen:true}).then(ok => { if(ok){ planQuellenZeichnen(); zeichne(); mergeAssistentStart(); } });
-    }else{
-      planUpdateId = q.id; $("#sPlanName").value = q.name; $("#sPlanDateiLesen").click();
-    }
+    planUpdateId = q.id; $("#sPlanName").value = q.name; $("#sPlanDateiLesen").click();
   }else if(del){
     const q = planQuellen.find(x => x.id === del.dataset.qDelete); if(!q) return;
     if(!confirm(`Planquelle „${q.name}“ löschen?`)) return;
@@ -4455,7 +4367,7 @@ setInterval(() => {
   if(jetzt !== letzterTag){ letzterTag = jetzt; gewaehlt = new Date(); zeichne(); }
   else if(ansicht === "tag") { zeichneFortschritt(); $("#countdown").textContent = countdownText(); }
 }, 30000);
-document.addEventListener("visibilitychange", () => { if(!document.hidden){ zeichne(); verbundenePlanquellenAktualisieren().catch(() => {}); } });
+document.addEventListener("visibilitychange", () => { if(!document.hidden){ zeichne(); } });
 /* Zwei offene Tabs auf demselben Profil schrieben sich bisher gegenseitig
    ganze Listen tot. Ändert der andere Tab etwas, hier neu einlesen. */
 window.addEventListener("storage", e => {
@@ -4495,7 +4407,6 @@ function starten(){
   profilKnopf();
   zeichne();
   fussHoeheAktualisieren();
-  verbundenePlanquellenAktualisieren().catch(() => {});
   versionPruefen();
   meldemerkerAufraeumen();
   erinnerungenPruefen().catch(() => {});

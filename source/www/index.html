@@ -836,11 +836,8 @@ details summary{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-
   <div class="eyebrow" style="margin-top:18px">Stundenpläne</div>
   <p class="hinweis">Quellpläne bleiben getrennt gespeichert. Der sichtbare Plan wird aus aktiven Quellen und deinen Zusammenführungsregeln berechnet.</p>
   <label><span>Name der Quelle</span><input type="text" id="sPlanName" maxlength="80" placeholder="z. B. Stammklasse 10B"></label>
-  <label><span>Plan-Link (HTTPS)</span><input type="url" id="sPlanUrl" maxlength="2048" inputmode="url" autocomplete="url" placeholder="https://…/stundenplan.json"></label>
-  <p class="hinweis">Der Link muss direkt ein kompatibles xyz-/Stundenplan-JSON liefern. Verbundene Links werden beim Öffnen der App automatisch aktualisiert.</p>
   <div class="chips">
-    <button type="button" id="sPlanLink" style="border-color:var(--akzent);color:var(--akzent)">Link verbinden</button>
-    <button type="button" id="sPlanDatei">JSON-Datei als Fallback</button>
+    <button type="button" id="sPlanDatei">Lokale JSON-Datei importieren</button>
     <button type="button" id="sPlanMergeNeu">Neu berechnen</button>
   </div>
   <input type="file" id="sPlanDateiLesen" accept="application/json,.json" style="display:none">

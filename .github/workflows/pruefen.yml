@@ -7,6 +7,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: xyz-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -53,19 +57,13 @@ jobs:
         with:
           gradle-version: '8.14.3'
 
-      - name: Android Debug APK bauen
-        run: gradle -p source/android :app:assembleDebug
+      - name: Native Portaltests, Android Lint und APK-Build
+        run: gradle -p source/android :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 
       - name: Fertige Application bereitstellen
-        run: cp source/android/app/build/outputs/apk/debug/app-debug.apk xyz.apk
-
-      - name: APK als Actions-Artefakt bereitstellen
-        uses: actions/upload-artifact@v4
-        with:
-          name: xyz-apk
-          path: xyz.apk
-          if-no-files-found: error
-          retention-days: 30
+        run: |
+          cp xyz.apk "$RUNNER_TEMP/xyz-previous.apk"
+          cp source/android/app/build/outputs/apk/debug/app-debug.apk xyz.apk
 
       - name: APK-Struktur, feste Preview-Signatur und Manifest prüfen
         shell: bash
@@ -85,8 +83,8 @@ jobs:
           printf '%s\n' "$BADGING"
           grep -q "package: name='com.djkamma420.xyz.dev'" <<<"$BADGING"
           grep -q "application-label:'xyz'" <<<"$BADGING"
-          grep -q "versionName='0.4.0'" <<<"$BADGING"
-          grep -q "versionCode='5'" <<<"$BADGING"
+          grep -q "versionName='0.4.1'" <<<"$BADGING"
+          grep -q "versionCode='6'" <<<"$BADGING"
           sha256sum "$APK"
 
       - name: Android-Emulator vorbereiten
@@ -139,13 +137,16 @@ jobs:
             sleep 2
           done
           if [ "$booted" != "1" ]; then cat /tmp/xyz-emulator.log; kill "$EMULATOR_PID" 2>/dev/null || true; exit 1; fi
-          "$ADB" install "$APK"
+          # Upgrade the actual previous preview and check retained application data.
+          "$ADB" install "$RUNNER_TEMP/xyz-previous.apk"
+          "$ADB" shell run-as com.djkamma420.xyz.dev sh -c '"mkdir -p files; echo upgrade-preserved > files/preview-upgrade-check"'
           "$ADB" install -r "$APK"
+          "$ADB" shell run-as com.djkamma420.xyz.dev cat files/preview-upgrade-check | tr -d '\r' | grep -qx 'upgrade-preserved'
           "$ADB" shell am force-stop com.djkamma420.xyz.dev
           "$ADB" shell am start -W -n com.djkamma420.xyz.dev/.MainActivity | tee /tmp/xyz-launch.txt
           grep -Eq '^Status: ok$|^Complete$' /tmp/xyz-launch.txt
           test -n "$("$ADB" shell pidof com.djkamma420.xyz.dev | tr -d '\r')"
-          "$ADB" shell dumpsys package com.djkamma420.xyz.dev | grep -q 'versionName=0.4.0'
+          "$ADB" shell dumpsys package com.djkamma420.xyz.dev | grep -q 'versionName=0.4.1'
           "$ADB" emu kill || true
 
       - name: Emulator-Log bei Fehler ausgeben
@@ -153,6 +154,14 @@ jobs:
         shell: bash
         run: |
           if [ -f /tmp/xyz-emulator.log ]; then tail -n 250 /tmp/xyz-emulator.log; fi
+
+      - name: APK als Actions-Artefakt bereitstellen
+        uses: actions/upload-artifact@v4
+        with:
+          name: xyz-apk
+          path: xyz.apk
+          if-no-files-found: error
+          retention-days: 30
 
   github-application:
     name: Fertige Application auf GitHub aktualisieren
@@ -170,6 +179,12 @@ jobs:
           name: xyz-apk
           path: .
 
+      - name: Veröffentlichung an geprüften Commit binden
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
+
       - name: xyz.apk im Main-Root aktualisieren
         shell: bash
         run: |
@@ -181,7 +196,7 @@ jobs:
           if git diff --cached --quiet; then
             echo 'xyz.apk ist bereits aktuell.'
           else
-            git commit -m 'Aktualisiere installierbare xyz.apk auf 0.4.0'
+            git commit -m 'Aktualisiere installierbare xyz.apk auf 0.4.1'
             git push origin HEAD:main
           fi
 
@@ -191,20 +206,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          NOTES='version=0.4.0\nDirekte Virtueller-Stundenplan-Anbindung mit Keystore-Login, persönlichem Tagesabruf und getrenntem Portal-Cache. Preview-Signierung; kein Play-Store-Release.'
+          cat > "$RUNNER_TEMP/preview-notes.txt" <<'NOTES'
+          version=0.4.1
+          Login-Fix für virtueller-stundenplan.org: aktuelle Formularkennung, sichere Weiterleitungen und getrennte Sitzungen je Profil. Andere Stundenplandienste werden nicht unterstützt. Feste Preview-Signatur und In-App-Updater bleiben erhalten.
+          NOTES
+          SHA256="$(sha256sum xyz.apk | cut -d ' ' -f1)"
           if gh release view preview --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload preview xyz.apk --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit preview \
               --repo "$GITHUB_REPOSITORY" \
-              --target main \
-              --title 'xyz 0.4.0 Preview' \
-              --notes "$NOTES" \
+              --title 'xyz 0.4.1 Preview' \
+              --notes-file "$RUNNER_TEMP/preview-notes.txt" \
               --prerelease
-            gh release upload preview xyz.apk --clobber --repo "$GITHUB_REPOSITORY"
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/preview" -f sha="$GITHUB_SHA" -F force=true
           else
             gh release create preview xyz.apk \
               --repo "$GITHUB_REPOSITORY" \
-              --target main \
-              --title 'xyz 0.4.0 Preview' \
-              --notes "$NOTES" \
+              --target "$GITHUB_SHA" \
+              --title 'xyz 0.4.1 Preview' \
+              --notes-file "$RUNNER_TEMP/preview-notes.txt" \
               --prerelease
           fi
+          # The updater requires the digest provided by GitHub's release API.
+          DIGEST="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/preview" --jq '.assets[] | select(.name == "xyz.apk") | .digest')"
+          test "$DIGEST" = "sha256:$SHA256"
