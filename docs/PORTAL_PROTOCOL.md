@@ -1,6 +1,6 @@
 # Virtueller Stundenplan: Protokollstatus
 
-Stand: September 2026. Die Integration ist **reverse-engineered und nicht offiziell dokumentiert**. Sie darf daher nur eng an beobachtete Felder und Endpunkte gebunden werden und muss bei Abweichungen fehlschlagen, statt neue Parameter zu erraten.
+Stand: September 2026. Die Integration ist **reverse-engineered und nicht offiziell dokumentiert**. Sie ist absichtlich ausschließlich an `virtueller-stundenplan.org` gebunden. Andere Schulportale oder Webseiten werden nicht unterstützt. Bei Abweichungen schlägt die Integration fehl, statt neue Parameter oder fremde Anbieter zu erraten.
 
 ## Beobachtete Anmeldung
 
@@ -15,8 +15,9 @@ Ein existierender Open-Source-Client (`LarvenStein/better-stundenplan`) verwende
 - `formAction=login`
 - `formName=stacks_in_368_page1`
 - Sitzung über das vom Server gesetzte `PHPSESSID`-Cookie
+- Weiterleitungen nach dem Login werden verfolgt
 
-xyz 0.4.0 unterstützt **nur diesen direkten Formularweg**. Office 365 wird nicht nachgebaut oder geraten.
+xyz 0.4.1 unterstützt **nur diesen direkten Formularweg auf `virtueller-stundenplan.org`**. Office 365 wird nicht nachgebaut oder geraten. Portal-Redirects werden nur über HTTPS und nur innerhalb derselben Domain verfolgt; eine Weiterleitung auf eine andere Domain wird abgebrochen.
 
 ## Tagesplan
 
@@ -38,7 +39,7 @@ Der bekannte Wochenlink `/page-5/index.php?KlaBuDatum=...&RES=` wird **nicht** a
 
 ## Sicherheitsmodell in xyz
 
-- Verbindung direkt vom Android-Gerät zum Schulportal über HTTPS.
+- Verbindung direkt vom Android-Gerät zu `virtueller-stundenplan.org` über HTTPS.
 - Kein xyz-Server und kein eingebetteter GitHub- oder Portal-Token.
 - Passwort und Benutzerkennung werden bei „angemeldet bleiben“ ausschließlich über `VPlanBridge.secureSet` im Android-Keystore-geschützten Speicher abgelegt.
 - Zugangsdaten werden je xyz-Profil getrennt gespeichert.
