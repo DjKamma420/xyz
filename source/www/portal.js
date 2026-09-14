@@ -126,22 +126,23 @@
   }
   async function synchronisieren({inklHeuteRows=null}={}){
     if(laeuft)return;
+    const profil=profilId(), c=client();
     busy(true);
     try{
       const tage=tageNaechsteWoche();
       for(const d of tage){
         if(inklHeuteRows&&d===isoLocal(new Date())){tagSpeichern(d,inklHeuteRows);continue;}
-        try{tagSpeichern(d,await client().tagAbrufen(d));}
+        try{const rows=await c.tagAbrufen(d);if(profil!==profilId())return;tagSpeichern(d,rows);}
         catch(e){
-          if(e?.code==="LOGIN_FEHLER"&&await client().gespeichert()){
-            const r=await client().wiederherstellen(d); angemeldet=!!r.angemeldet; tagSpeichern(d,r.rows); continue;
+          if(e?.code==="LOGIN_FEHLER"&&await c.gespeichert()){
+            const r=await c.wiederherstellen(d); if(profil!==profilId())return; angemeldet=!!r.angemeldet; tagSpeichern(d,r.rows); continue;
           }
           throw e;
         }
       }
       metaSchreiben({letzterAbrufAm:new Date().toISOString()});
       angemeldet=true; status("Verbunden · die nächsten Schultage wurden aktualisiert."); overlayAnwenden();
-    }catch(e){status(fehlerText(e),true);}
+    }catch(e){if(profil===profilId())status(fehlerText(e),true);}
     finally{busy(false);}
   }
   async function verbinden(){
@@ -150,35 +151,41 @@
     const pass=root.document.getElementById("portalPass")?.value||"";
     const merken=!!root.document.getElementById("portalMerken")?.checked;
     if(!user||!pass){status("Benutzer/Mailadresse und Passwort eingeben.",true);return;}
+    const profil=profilId(), c=client();
     busy(true); status("Anmeldung wird geprüft …");
     try{
       const heute=isoLocal(new Date());
-      const r=await client().anmelden({benutzer:user,passwort:pass,merken,datum:heute});
+      const r=await c.anmelden({benutzer:user,passwort:pass,merken,datum:heute});
+      if(profil!==profilId())return;
       angemeldet=true; tagSpeichern(heute,r.rows);
       const p=root.document.getElementById("portalPass"); if(p)p.value="";
       status(merken?"Verbunden · Zugangsdaten sind geschützt auf diesem Gerät gespeichert.":"Verbunden · Zugangsdaten werden nach dieser Sitzung nicht gespeichert.");
       busy(false); await synchronisieren({inklHeuteRows:r.rows});
-    }catch(e){status(fehlerText(e),true);busy(false);}
+    }catch(e){if(profil===profilId())status(fehlerText(e),true);}finally{busy(false);}
   }
   async function trennen(){
     if(laeuft)return;
+    const profil=profilId(), c=client();
     busy(true);
-    try{await client().abmelden();angemeldet=false;cacheLeeren();if(typeof root.zeichne==="function")root.zeichne();status("Portal-Verbindung auf diesem Gerät getrennt.");overlayAnwenden();}
-    catch(e){status(fehlerText(e),true);} finally{busy(false);}
+    try{await c.abmelden();if(profil!==profilId())return;angemeldet=false;cacheLeeren();if(typeof root.zeichne==="function")root.zeichne();status("Portal-Verbindung auf diesem Gerät getrennt.");overlayAnwenden();}
+    catch(e){if(profil===profilId())status(fehlerText(e),true);} finally{busy(false);}
   }
   async function autoStart(){
+    const profil=profilId(), c=client();
     try{
-      const gespeichert=await client().gespeichert();
+      const gespeichert=await c.gespeichert();
+      if(profil!==profilId())return;
       if(!gespeichert){status("Nicht verbunden.");return;}
       status("Gespeicherte Anmeldung vorhanden.");
       const alt=Date.parse(metaLesen().letzterAbrufAm||"")||0;
       if(Date.now()-alt<AUTO_MS){overlayAnwenden();return;}
       busy(true);
-      const heute=isoLocal(new Date()),r=await client().wiederherstellen(heute);
+      const heute=isoLocal(new Date()),r=await c.wiederherstellen(heute);
+      if(profil!==profilId()){busy(false);return;}
       busy(false);
       if(!r.angemeldet){status("Anmeldung muss erneut eingegeben werden.",true);return;}
       angemeldet=true;tagSpeichern(heute,r.rows);await synchronisieren({inklHeuteRows:r.rows});
-    }catch(e){busy(false);status(fehlerText(e),true);}
+    }catch(e){busy(false);if(profil===profilId())status(fehlerText(e),true);}
   }
 
   function uiEinbauen(){
