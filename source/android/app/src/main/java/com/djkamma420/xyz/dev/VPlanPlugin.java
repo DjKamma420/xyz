@@ -35,7 +35,9 @@ import javax.net.ssl.HttpsURLConnection;
 public class VPlanPlugin extends Plugin {
     private static final String STORE = "xyz_vplan_secure";
     private static final String KEY_ALIAS = "xyz_vplan_aes_v1";
+    private static final String PORTAL_HOST = "virtueller-stundenplan.org";
     private static final int MAX_HARD_BYTES = 4 * 1024 * 1024;
+    private static final int MAX_PORTAL_REDIRECTS = 5;
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private final CookieManager cookies = new CookieManager(null, CookiePolicy.ACCEPT_ORIGINAL_SERVER);
 
@@ -90,40 +92,28 @@ public class VPlanPlugin extends Plugin {
         String key = call.getString("key");
         String value = call.getString("value");
         if (!validSecretKeyName(key) || value == null) { call.reject("Ungültiger Secure-Storage-Schlüssel.", "INVALID_ARGUMENT"); return; }
-        try {
-            prefs().edit().putString(key, encrypt(value)).apply();
-            call.resolve();
-        } catch (Exception e) {
-            call.reject("Sicherer Speicher konnte nicht geschrieben werden.", "SECURE_STORAGE_ERROR");
-        }
+        try { prefs().edit().putString(key, encrypt(value)).apply(); call.resolve(); }
+        catch (Exception e) { call.reject("Sicherer Speicher konnte nicht geschrieben werden.", "SECURE_STORAGE_ERROR"); }
     }
 
     @PluginMethod
     public void secureGet(PluginCall call) {
         String key = call.getString("key");
         if (!validSecretKeyName(key)) { call.reject("Ungültiger Secure-Storage-Schlüssel.", "INVALID_ARGUMENT"); return; }
-        try {
-            JSObject out = new JSObject();
-            out.put("value", decrypt(prefs().getString(key, "")));
-            call.resolve(out);
-        } catch (Exception e) {
-            call.reject("Sicherer Speicher konnte nicht gelesen werden.", "SECURE_STORAGE_ERROR");
-        }
+        try { JSObject out = new JSObject(); out.put("value", decrypt(prefs().getString(key, ""))); call.resolve(out); }
+        catch (Exception e) { call.reject("Sicherer Speicher konnte nicht gelesen werden.", "SECURE_STORAGE_ERROR"); }
     }
 
     @PluginMethod
     public void secureRemove(PluginCall call) {
         String key = call.getString("key");
         if (!validSecretKeyName(key)) { call.reject("Ungültiger Secure-Storage-Schlüssel.", "INVALID_ARGUMENT"); return; }
-        prefs().edit().remove(key).apply();
-        call.resolve();
+        prefs().edit().remove(key).apply(); call.resolve();
     }
 
     @PluginMethod
     public void secureClear(PluginCall call) {
-        prefs().edit().clear().apply();
-        cookies.getCookieStore().removeAll();
-        call.resolve();
+        prefs().edit().clear().apply(); cookies.getCookieStore().removeAll(); call.resolve();
     }
 
     @PluginMethod
@@ -141,63 +131,94 @@ public class VPlanPlugin extends Plugin {
         HttpsURLConnection conn = null;
         try {
             if (urlText == null) throw new IllegalArgumentException("URL fehlt");
-            URL url = new URL(urlText);
-            if (!"https".equalsIgnoreCase(url.getProtocol())) throw new IllegalArgumentException("Nur HTTPS ist erlaubt");
-            URI uri = url.toURI();
-            conn = (HttpsURLConnection) url.openConnection();
-            conn.setInstanceFollowRedirects(false);
-            conn.setConnectTimeout(timeout);
-            conn.setReadTimeout(timeout);
-            String method = methodRaw == null ? "GET" : methodRaw.toUpperCase();
-            if (!(method.equals("GET") || method.equals("POST") || method.equals("HEAD")))
-                throw new IllegalArgumentException("HTTP-Methode nicht erlaubt");
-            conn.setRequestMethod(method);
-            conn.setRequestProperty("Accept", "application/json,text/html,text/plain,*/*");
-            conn.setRequestProperty("User-Agent", "xyz-android/0.2.0");
+            URL currentUrl = new URL(urlText);
+            if (!"https".equalsIgnoreCase(currentUrl.getProtocol())) throw new IllegalArgumentException("Nur HTTPS ist erlaubt");
+            String currentMethod = methodRaw == null ? "GET" : methodRaw.toUpperCase();
+            if (!(currentMethod.equals("GET") || currentMethod.equals("POST") || currentMethod.equals("HEAD"))) throw new IllegalArgumentException("HTTP-Methode nicht erlaubt");
+            final boolean portalLogin = currentMethod.equals("POST") && isPortalLoginUrl(currentUrl);
+            int redirects = 0;
 
-            Map<String,List<String>> cookieHeaders = cookies.get(uri, Collections.emptyMap());
-            for (Map.Entry<String,List<String>> h : cookieHeaders.entrySet())
-                if (h.getKey() != null && !h.getValue().isEmpty()) conn.setRequestProperty(h.getKey(), String.join("; ", h.getValue()));
-
-            if (headers != null) {
-                Iterator<String> it = headers.keys();
-                while (it.hasNext()) {
-                    String k = it.next();
-                    if (!safeHeaderName(k)) continue;
-                    String v = headers.optString(k, "");
-                    if (!v.contains("\r") && !v.contains("\n")) conn.setRequestProperty(k, v);
+            while (true) {
+                URI uri = currentUrl.toURI();
+                conn = (HttpsURLConnection) currentUrl.openConnection();
+                conn.setInstanceFollowRedirects(false);
+                conn.setConnectTimeout(timeout);
+                conn.setReadTimeout(timeout);
+                conn.setRequestMethod(currentMethod);
+                conn.setRequestProperty("Accept", "application/json,text/html,text/plain,*/*");
+                conn.setRequestProperty("User-Agent", "xyz-android/0.4.1");
+                Map<String,List<String>> cookieHeaders = cookies.get(uri, Collections.emptyMap());
+                for (Map.Entry<String,List<String>> h : cookieHeaders.entrySet()) if (h.getKey() != null && !h.getValue().isEmpty()) conn.setRequestProperty(h.getKey(), String.join("; ", h.getValue()));
+                if (headers != null) {
+                    Iterator<String> it = headers.keys();
+                    while (it.hasNext()) {
+                        String k = it.next();
+                        if (!safeHeaderName(k)) continue;
+                        String v = headers.optString(k, "");
+                        if (!v.contains("\r") && !v.contains("\n")) conn.setRequestProperty(k, v);
+                    }
                 }
+                if (currentMethod.equals("POST")) {
+                    byte[] requestBytes = (body == null ? "" : body).getBytes(StandardCharsets.UTF_8);
+                    if (requestBytes.length > maxBytes) throw new IllegalArgumentException("Request zu groß");
+                    conn.setDoOutput(true);
+                    conn.setFixedLengthStreamingMode(requestBytes.length);
+                    try (OutputStream out = conn.getOutputStream()) { out.write(requestBytes); }
+                }
+                int status = conn.getResponseCode();
+                cookies.put(uri, conn.getHeaderFields());
+                if (portalLogin && isRedirect(status)) {
+                    String location = conn.getHeaderField("Location");
+                    if (location == null || location.trim().isEmpty()) break;
+                    if (++redirects > MAX_PORTAL_REDIRECTS) throw new IllegalStateException("Zu viele Portal-Weiterleitungen");
+                    URL next = new URL(currentUrl, location);
+                    if (!isPortalUrl(next)) throw new SecurityException("Portal-Weiterleitung verlässt virtueller-stundenplan.org");
+                    if (currentMethod.equals("POST") && (status == 301 || status == 302 || status == 303)) currentMethod = "GET";
+                    conn.disconnect(); conn = null; currentUrl = next; continue;
+                }
+                long declared = conn.getContentLengthLong();
+                if (declared > maxBytes) throw new IllegalStateException("Antwort zu groß");
+                InputStream in = status >= 400 ? conn.getErrorStream() : conn.getInputStream();
+                byte[] responseBytes = readLimited(in, maxBytes);
+                JSObject out = new JSObject();
+                out.put("status", status);
+                out.put("body", new String(responseBytes, StandardCharsets.UTF_8));
+                out.put("contentType", conn.getContentType() == null ? "" : conn.getContentType());
+                out.put("date", conn.getHeaderField("Date") == null ? "" : conn.getHeaderField("Date"));
+                out.put("url", currentUrl.toString());
+                call.resolve(out); return;
             }
-
-            if (method.equals("POST")) {
-                byte[] bytes = (body == null ? "" : body).getBytes(StandardCharsets.UTF_8);
-                if (bytes.length > maxBytes) throw new IllegalArgumentException("Request zu groß");
-                conn.setDoOutput(true);
-                conn.setFixedLengthStreamingMode(bytes.length);
-                try (OutputStream out = conn.getOutputStream()) { out.write(bytes); }
-            }
-
             int status = conn.getResponseCode();
-            cookies.put(uri, conn.getHeaderFields());
             long declared = conn.getContentLengthLong();
             if (declared > maxBytes) throw new IllegalStateException("Antwort zu groß");
             InputStream in = status >= 400 ? conn.getErrorStream() : conn.getInputStream();
-            byte[] bytes = readLimited(in, maxBytes);
-
+            byte[] responseBytes = readLimited(in, maxBytes);
             JSObject out = new JSObject();
             out.put("status", status);
-            out.put("body", new String(bytes, StandardCharsets.UTF_8));
+            out.put("body", new String(responseBytes, StandardCharsets.UTF_8));
             out.put("contentType", conn.getContentType() == null ? "" : conn.getContentType());
             out.put("date", conn.getHeaderField("Date") == null ? "" : conn.getHeaderField("Date"));
+            out.put("url", currentUrl.toString());
             call.resolve(out);
-        } catch (java.net.SocketTimeoutException e) {
-            call.reject("Zeitüberschreitung bei der Netzwerkanfrage.", "TIMEOUT");
-        } catch (Exception e) {
-            call.reject("Netzwerkanfrage fehlgeschlagen.", "NETWORK_ERROR");
-        } finally {
-            if (conn != null) conn.disconnect();
-        }
+        } catch (java.net.SocketTimeoutException e) { call.reject("Zeitüberschreitung bei der Netzwerkanfrage.", "TIMEOUT"); }
+        catch (Exception e) { call.reject("Netzwerkanfrage fehlgeschlagen.", "NETWORK_ERROR"); }
+        finally { if (conn != null) conn.disconnect(); }
     }
+
+    private static boolean isPortalLoginUrl(URL url) {
+        if (!isPortalUrl(url)) return false;
+        String path = url.getPath();
+        return path == null || path.isEmpty() || "/".equals(path) || "/index.php".equals(path);
+    }
+
+    private static boolean isPortalUrl(URL url) {
+        if (url == null || !"https".equalsIgnoreCase(url.getProtocol())) return false;
+        if (!PORTAL_HOST.equalsIgnoreCase(url.getHost())) return false;
+        int port = url.getPort();
+        return port == -1 || port == 443;
+    }
+
+    private static boolean isRedirect(int status) { return status == 301 || status == 302 || status == 303 || status == 307 || status == 308; }
 
     private static boolean safeHeaderName(String k) {
         if (k == null || !k.matches("[A-Za-z0-9-]{1,80}")) return false;
@@ -208,13 +229,8 @@ public class VPlanPlugin extends Plugin {
     private static byte[] readLimited(InputStream in, int maxBytes) throws Exception {
         if (in == null) return new byte[0];
         try (InputStream src = in; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            byte[] buf = new byte[8192];
-            int total = 0, n;
-            while ((n = src.read(buf)) != -1) {
-                total += n;
-                if (total > maxBytes) throw new IllegalStateException("Antwort zu groß");
-                out.write(buf, 0, n);
-            }
+            byte[] buf = new byte[8192]; int total = 0, n;
+            while ((n = src.read(buf)) != -1) { total += n; if (total > maxBytes) throw new IllegalStateException("Antwort zu groß"); out.write(buf, 0, n); }
             return out.toByteArray();
         }
     }
