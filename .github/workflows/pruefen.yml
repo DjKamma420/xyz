@@ -33,24 +33,19 @@ jobs:
         working-directory: source
         run: npm run check
 
-      - name: Preview-Version 0.3.1 für Update-Test setzen
-        shell: bash
-        run: |
-          set -euo pipefail
-          sed -i 's/versionCode 3/versionCode 4/' source/android/app/build.gradle
-          sed -i "s/versionName '0.3.0'/versionName '0.3.1'/" source/android/app/build.gradle
-          grep -q 'versionCode 4' source/android/app/build.gradle
-          grep -q "versionName '0.3.1'" source/android/app/build.gradle
-
       - name: Webassets für Android synchronisieren
         working-directory: source
         run: npm run android:sync
 
-      - name: Nativen Updater im Android-Build prüfen
+      - name: Nativen Updater und Portaladapter im Android-Build prüfen
         shell: bash
         run: |
           set -euo pipefail
-          grep -q '<script src="updater.js"></script>' source/android/app/src/main/assets/public/index.html
+          test -s source/android/app/src/main/assets/public/updater.js
+          test -s source/android/app/src/main/assets/public/portal.js
+          grep -q 'updater.js' source/android/app/src/main/assets/public/vplan.js
+          grep -q 'portal.js' source/android/app/src/main/assets/public/vplan.js
+          grep -q 'portalLoginRequest' source/android/app/src/main/assets/public/vplan.js
           grep -q 'registerPlugin(UpdatePlugin.class)' source/android/app/src/main/java/com/djkamma420/xyz/dev/MainActivity.java
           grep -q 'REQUEST_INSTALL_PACKAGES' source/android/app/src/main/AndroidManifest.xml
 
@@ -90,8 +85,8 @@ jobs:
           printf '%s\n' "$BADGING"
           grep -q "package: name='com.djkamma420.xyz.dev'" <<<"$BADGING"
           grep -q "application-label:'xyz'" <<<"$BADGING"
-          grep -q "versionName='0.3.1'" <<<"$BADGING"
-          grep -q "versionCode='4'" <<<"$BADGING"
+          grep -q "versionName='0.4.0'" <<<"$BADGING"
+          grep -q "versionCode='5'" <<<"$BADGING"
           sha256sum "$APK"
 
       - name: Android-Emulator vorbereiten
@@ -150,7 +145,7 @@ jobs:
           "$ADB" shell am start -W -n com.djkamma420.xyz.dev/.MainActivity | tee /tmp/xyz-launch.txt
           grep -Eq '^Status: ok$|^Complete$' /tmp/xyz-launch.txt
           test -n "$("$ADB" shell pidof com.djkamma420.xyz.dev | tr -d '\r')"
-          "$ADB" shell dumpsys package com.djkamma420.xyz.dev | grep -q 'versionName=0.3.1'
+          "$ADB" shell dumpsys package com.djkamma420.xyz.dev | grep -q 'versionName=0.4.0'
           "$ADB" emu kill || true
 
       - name: Emulator-Log bei Fehler ausgeben
@@ -186,7 +181,7 @@ jobs:
           if git diff --cached --quiet; then
             echo 'xyz.apk ist bereits aktuell.'
           else
-            git commit -m 'Aktualisiere installierbare xyz.apk auf 0.3.1'
+            git commit -m 'Aktualisiere installierbare xyz.apk auf 0.4.0'
             git push origin HEAD:main
           fi
 
@@ -196,19 +191,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          NOTES='version=0.4.0\nDirekte Virtueller-Stundenplan-Anbindung mit Keystore-Login, persönlichem Tagesabruf und getrenntem Portal-Cache. Preview-Signierung; kein Play-Store-Release.'
           if gh release view preview --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit preview \
               --repo "$GITHUB_REPOSITORY" \
               --target main \
-              --title 'xyz 0.3.1 Preview' \
-              --notes 'version=0.3.1\nUpdate-Test für den nativen In-App-Updater. Dieselbe feste Preview-Signatur wie 0.3.0.' \
+              --title 'xyz 0.4.0 Preview' \
+              --notes "$NOTES" \
               --prerelease
             gh release upload preview xyz.apk --clobber --repo "$GITHUB_REPOSITORY"
           else
             gh release create preview xyz.apk \
               --repo "$GITHUB_REPOSITORY" \
               --target main \
-              --title 'xyz 0.3.1 Preview' \
-              --notes 'version=0.3.1\nUpdate-Test für den nativen In-App-Updater. Dieselbe feste Preview-Signatur wie 0.3.0.' \
+              --title 'xyz 0.4.0 Preview' \
+              --notes "$NOTES" \
               --prerelease
           fi

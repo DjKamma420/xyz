@@ -36,3 +36,30 @@ test("28 Parserfehler wird gekapselt",async()=>{const bridge={request:async()=>(
 test("29 Parser muss Array liefern",async()=>{const bridge={request:async()=>({status:200,body:"{}"})},adapter={anfrage:async()=>({}),parse:async()=>({})};await assert.rejects(()=>new V.VPlanClient({bridge,adapter}).abrufen(),x=>x.code==="PARSER_FEHLER")});
 test("30 Erfolgsfall stempelt Abrufzeit",async()=>{const bridge={request:async()=>({status:200,body:"[]"})},adapter={anfrage:async()=>({}),parse:async()=>[e()]};const r=await new V.VPlanClient({bridge,adapter}).abrufen();assert.ok(r[0].abgerufenAm)});
 test("31 Secure Storage Setter nutzt Brücke",async()=>{let got;const bridge={request:async()=>({}),secureSet:async x=>(got=x,{ok:true})};await new V.VPlanClient({bridge,adapter:{}}).geheimnisSetzen("passwort","secret");assert.deepEqual(got,{key:"passwort",value:"secret"})});
+
+const portalHtml=`<!doctype html><html><body>
+<div data-title="Fach"><table id="editableTable"><tr><th>Std.</th><th>Fach</th></tr><tr><td>1</td><td>MA</td></tr><tr><td>2</td><td><b>PH</b></td></tr><tr><td>3/4</td><td>DE<br>GE</td></tr><tr><td>5</td><td>-</td></tr></table></div>
+<div data-title="LK"><table id="editableTable"><tr><th>Std.</th><th>LK</th></tr><tr><td>1</td><td>AB</td></tr><tr><td>2</td><td><b>CD</b></td></tr><tr><td>3/4</td><td>EF<br>GH</td></tr><tr><td>5</td><td>-</td></tr></table></div>
+<div data-title="Raum"><table id="editableTable"><tr><th>Std.</th><th>Raum</th></tr><tr><td>1</td><td>101</td></tr><tr><td>2</td><td><b>204</b></td></tr><tr><td>3/4</td><td>301<br>302</td></tr><tr><td>5</td><td>-</td></tr></table></div>
+</body></html>`;
+
+test("32 Login-Request nutzt belegte Portalparameter",()=>{const r=V.portalLoginRequest("a+b@example.org","p&x");assert.equal(r.url,V.PORTAL_LOGIN);assert.match(r.body,/MAIL=a%2Bb%40example\.org/);assert.match(r.body,/SCHUELERCODE=p%26x/);assert.match(r.body,/formAction=login/);assert.match(r.body,/formName=stacks_in_368_page1/)});
+test("33 Portal-Datum wird deutsch übertragen",()=>assert.match(V.portalDayRequest("2026-09-14").url,/KlaBuDatum=14\.09\.2026/));
+test("34 ungültiges Portal-Datum abgelehnt",()=>assert.throws(()=>V.portalDayRequest("14.09.2026"),x=>x.code==="DATUM_UNGUELTIG"));
+test("35 Login-HTML wird erkannt",()=>assert.equal(V.portalIstLoginHtml('<form><input name="SCHUELERCODE"><input name="formName" value="stacks_in_368_page1"></form>'),true));
+test("36 normale Planseite ist keine Loginseite",()=>assert.equal(V.portalIstLoginHtml(portalHtml),false));
+test("37 HTML-Entities werden als Text gelesen",()=>assert.deepEqual(V.htmlWerte("MA &amp; PH<br>R&amp;D"),["MA & PH","R&D"]));
+test("38 Pluspräfix wird entfernt",()=>assert.deepEqual(V.htmlWerte("+ MA<br>+ PH"),["MA","PH"]));
+test("39 Fach/LK/Raum werden kombiniert",()=>{const r=V.parsePortalDayHtml(portalHtml);assert.equal(r[0].fach,"MA");assert.equal(r[0].lehrer,"AB");assert.equal(r[0].raum,"101")});
+test("40 Fettdruck markiert Änderung",()=>{const r=V.parsePortalDayHtml(portalHtml);assert.equal(r[1].geaendert,true);assert.equal(r[1].fachMarkiert,"PH");assert.equal(r[1].raumMarkiert,"204")});
+test("41 Mehrfachwerte bleiben sichtbar",()=>{const r=V.parsePortalDayHtml(portalHtml);assert.equal(r[2].fach,"DE / GE");assert.equal(r[2].raum,"301 / 302")});
+test("42 Bindestrich wird leer",()=>{const r=V.parsePortalDayHtml(portalHtml);assert.equal(r[3].fach,"");assert.equal(r[3].lehrer,"");assert.equal(r[3].raum,"")});
+test("43 Loginseite wird nicht als Plan geparst",()=>assert.throws(()=>V.parsePortalDayHtml('<p>Anmeldung für Schülerinnen und Schüler</p><input name="SCHUELERCODE">'),x=>x.code==="LOGIN_FEHLER"));
+test("44 Seite ohne Tabellen wird abgelehnt",()=>assert.throws(()=>V.parsePortalDayHtml("<html>leer</html>"),x=>x.code==="PARSER_FEHLER"));
+test("45 Einzelstunden landen im 90-Minuten-Block",()=>{const r=V.portalRowsZuSlots([{slot:"1",fach:"MA"},{slot:"2",fach:"MA"}],slots);assert.equal(r.gruppen[0].index,0);assert.equal(r.gruppen[0].effektiv.fach,"MA")});
+test("46 verschiedene Einzelstunden werden transparent zusammengefasst",()=>{const r=V.portalRowsZuSlots([{slot:"1",fach:"MA"},{slot:"2",fach:"PH"}],slots);assert.equal(r.gruppen[0].effektiv.fach,"MA / PH")});
+test("47 unbekannte Portalstunde wird Hinweis",()=>{const r=V.portalRowsZuSlots([{slot:"99",fach:"MA"}],slots);assert.equal(r.hinweise.length,1)});
+test("48 PortalClient erkennt Redirect als Loginfehler",async()=>{const bridge={request:async req=>req.method==="POST"?{status:302,body:""}:{status:302,body:""}};await assert.rejects(()=>new V.PortalClient({bridge}).anmelden({benutzer:"x",passwort:"y",datum:"2026-09-14"}),x=>x.code==="LOGIN_FEHLER")});
+test("49 PortalClient speichert Zugangsdaten nur bei Merken",async()=>{const writes=[];const bridge={request:async req=>req.method==="POST"?{status:302,body:""}:{status:200,body:portalHtml},secureSet:async x=>writes.push(x),secureRemove:async()=>{}};const r=await new V.PortalClient({bridge}).anmelden({benutzer:"user",passwort:"pw",merken:true,datum:"2026-09-14"});assert.equal(r.rows.length,4);assert.deepEqual(writes.map(x=>x.key),["portal.user","portal.password"])});
+test("50 PortalClient entfernt gespeicherte Daten bei Merken aus",async()=>{const removed=[];const bridge={request:async req=>req.method==="POST"?{status:200,body:""}:{status:200,body:portalHtml},secureRemove:async x=>removed.push(x.key)};await new V.PortalClient({bridge}).anmelden({benutzer:"user",passwort:"pw",merken:false,datum:"2026-09-14"});assert.deepEqual(removed,["portal.user","portal.password"])});
+test("51 Portal-Zugangsdaten sind je Profil getrennt",async()=>{const writes=[];const bridge={request:async req=>req.method==="POST"?{status:200,body:""}:{status:200,body:portalHtml},secureSet:async x=>writes.push(x),secureRemove:async()=>{}};await new V.PortalClient({bridge,secretScope:"profil-2"}).anmelden({benutzer:"user",passwort:"pw",merken:true,datum:"2026-09-14"});assert.deepEqual(writes.map(x=>x.key),["portal.user.profil-2","portal.password.profil-2"])});

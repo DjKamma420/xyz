@@ -4,16 +4,30 @@ Android-Stundenplan auf Basis von StundenplanNothing.
 
 ## Direkt installieren
 
-Die einfachste Variante ist die Datei **`xyz.apk`** direkt im Hauptverzeichnis des Repositorys. Sie wird von GitHub Actions aus dem Quellcode gebaut, geprüft, auf einem Android-Emulator installiert und erst danach in `main` aktualisiert.
+Die einfachste Variante ist **`xyz.apk`** direkt im Hauptverzeichnis des Repositorys. GitHub Actions baut die APK aus dem Quellcode, prüft Tests, Signatur und Manifest, installiert sie auf einem Android-Emulator und aktualisiert danach erst die fertige Datei in `main`.
 
-Alternativ steht dieselbe APK unter **Releases → `v0.2.0-preview`** bereit.
+Alternativ steht dieselbe APK unter **Releases → `preview`** bereit. Die installierte Android-App kann diesen Release über **„Nach Update suchen“** selbst prüfen, herunterladen und über den Android-Installer aktualisieren.
 
-> Die aktuelle Fassung ist eine installierbare Preview und debug-signiert. Sie verwendet noch die provisorische Android-App-ID `com.djkamma420.xyz.dev` und ist noch kein Play-Store-Release.
+> Die aktuelle Fassung ist eine installierbare Preview mit fester Preview-Signatur. Sie verwendet weiterhin die provisorische Android-App-ID `com.djkamma420.xyz.dev` und ist noch kein Play-Store-Release.
+
+## Stand 0.4.0
+
+Zusätzlich zu mehreren deterministisch zusammengeführten Planquellen enthält 0.4.0 die erste direkte Android-Anbindung an **virtueller-stundenplan.org**:
+
+- persönlicher Benutzer-/Mail-Login mit Passwort direkt vom Gerät zum Schulportal
+- geschützte lokale Speicherung über Android Keystore bei „angemeldet bleiben“
+- getrennte Zugangsdaten je xyz-Profil
+- Abruf der nächsten Schultage aus der persönlichen Portalansicht
+- HTML-Parser für Fach, Lehrkraft und Raum
+- temporäre Portal-Anzeige getrennt von Quellplänen und Merge-Regeln
+- kein Office-365-Nachbau; unbekannte Protokollteile werden nicht geraten
+
+Details und Grenzen stehen in [`docs/PORTAL_PROTOCOL.md`](PORTAL_PROTOCOL.md).
 
 ## Repository-Struktur
 
 - `source/` – vollständiger Quellcode und Android-Projekt
-- `source/www/` – PWA-Oberfläche
+- `source/www/` – PWA-Oberfläche und Android-Webmodule
 - `source/android/` – Capacitor-/Android-Hülle
 - `source/werkzeug/` – Prüfungen, Tests und Android-Synchronisierung
 - `docs/` – Dokumentation
@@ -24,8 +38,6 @@ Alternativ steht dieselbe APK unter **Releases → `v0.2.0-preview`** bereit.
 ## Selbst bauen
 
 Eine vollständige Anleitung steht in [`docs/BUILD.md`](BUILD.md).
-
-Kurzfassung:
 
 ```bash
 cd source
@@ -41,8 +53,4 @@ Die erzeugte APK liegt danach unter:
 source/android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Stand v0.2.0
-
-Enthalten sind unter anderem responsive Bildschirm-/Safe-Area-Anpassungen, mehrere Planquellen mit deterministischem Merge und die Verbindung kompatibler Stundenplanquellen über HTTPS-Links mit automatischer Aktualisierung.
-
-Die schulportal-spezifische Login-Anbindung wird weiterhin nicht geraten: Dafür muss das tatsächliche Portalprotokoll bekannt sein. Zugangsdaten gehören ausschließlich in die App und nicht in Repository, Issues oder Chat.
+Portal-Zugangsdaten gehören ausschließlich in die App und niemals in Repository, Issues oder Chat.
