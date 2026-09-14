@@ -1,8 +1,15 @@
 name: Portal Fix Check
 on:
-  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - "Prüfen, APK bauen und veröffentlichen"
+    types:
+      - completed
+permissions:
+  contents: write
 jobs:
   check:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     steps:
       - run: echo portal-fix
