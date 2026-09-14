@@ -1,12 +1,56 @@
 # Virtueller Stundenplan: Protokollstatus
 
-Der Kern ist absichtlich portalneutral. Noch nicht festgelegt sind insbesondere:
+Stand: September 2026. Die Integration ist **reverse-engineered und nicht offiziell dokumentiert**. Sie darf daher nur eng an beobachtete Felder und Endpunkte gebunden werden und muss bei Abweichungen fehlschlagen, statt neue Parameter zu erraten.
 
-- Basis-URL und konkrete Endpunkte
-- Authentifizierungsart
-- Login-Feldnamen/POST-Parameter
-- Cookie-/Tokenformat
-- HTML- oder JSON-Struktur
-- Klassenparameter
+## Beobachtete Anmeldung
 
-Diese Angaben dürfen nicht aus Vermutungen implementiert werden. Grundlage für einen Adapter muss eine anonymisierte reale Netzwerkprobe oder Response der tatsächlich verwendeten Portalinstanz sein.
+Die öffentliche Startseite von `https://virtueller-stundenplan.org/` zeigt eine Anmeldung für Schülerinnen und Schüler mit **Benutzer/Mailadresse** und **Passwort** sowie einen separaten Office-365-Weg.
+
+Ein existierender Open-Source-Client (`LarvenStein/better-stundenplan`) verwendet für die direkte Formularanmeldung:
+
+- `POST https://virtueller-stundenplan.org/index.php`
+- `Content-Type: application/x-www-form-urlencoded`
+- `MAIL=<Benutzer oder Mailadresse>`
+- `SCHUELERCODE=<Passwort>`
+- `formAction=login`
+- `formName=stacks_in_368_page1`
+- Sitzung über das vom Server gesetzte `PHPSESSID`-Cookie
+
+xyz 0.4.0 unterstützt **nur diesen direkten Formularweg**. Office 365 wird nicht nachgebaut oder geraten.
+
+## Tagesplan
+
+Der beobachtete Abruf eines Tagesplans ist:
+
+```text
+GET https://virtueller-stundenplan.org/page2/index.php?KlaBuDatum=TT.MM.JJJJ&HideChangesOff=1&CompactOff=1
+```
+
+Die Antwort ist HTML, kein JSON. Der Parser liest ausschließlich Text aus den Tabellen:
+
+- `div[data-title=Fach] #editableTable`
+- `div[data-title=LK] #editableTable`
+- `div[data-title=Raum] #editableTable`
+
+Pro Zeile werden Stundennummer und die zweite Tabellenzelle gelesen. `<br>`-getrennte Mehrfachwerte bleiben sichtbar. `<b>` wird nur als Änderungsmarkierung ausgewertet; fremdes HTML wird nie in die App-Oberfläche übernommen.
+
+Der bekannte Wochenlink `/page-5/index.php?KlaBuDatum=...&RES=` wird **nicht** als Protokollgrundlage verwendet. Die Bedeutung von `RES` ist nicht ausreichend belegt und wird nicht geraten.
+
+## Sicherheitsmodell in xyz
+
+- Verbindung direkt vom Android-Gerät zum Schulportal über HTTPS.
+- Kein xyz-Server und kein eingebetteter GitHub- oder Portal-Token.
+- Passwort und Benutzerkennung werden bei „angemeldet bleiben“ ausschließlich über `VPlanBridge.secureSet` im Android-Keystore-geschützten Speicher abgelegt.
+- Zugangsdaten werden je xyz-Profil getrennt gespeichert.
+- Session-Cookies verbleiben im nativen Cookie-Container und werden nicht an JavaScript zurückgegeben.
+- Portal-Tagesdaten werden getrennt von Planquellen und Merge-Regeln als lokaler Cache gespeichert.
+- Dieser Cache wird nicht in normalen xyz-Backups aufgenommen.
+- Beim Trennen werden gespeicherte Portal-Zugangsdaten und der lokale Portal-Cache entfernt.
+- Keine TLS-Ausnahmen, kein Zertifikats-Bypass und kein Umgehen von CAPTCHA oder Rate-Limits.
+
+## Robustheit
+
+Wenn die Tagesseite wieder auf eine Login-Seite oder einen Redirect zurückfällt, gilt die Sitzung als ungültig. Bei geänderter HTML-Struktur wird nichts geraten; der Parser meldet einen Fehler und behält den letzten gültigen lokalen Stand.
+
+Referenz für die beobachtete Drittclient-Implementierung:
+`https://github.com/LarvenStein/better-stundenplan`
