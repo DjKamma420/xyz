@@ -113,18 +113,27 @@
     laeuft=an;
     ["portalVerbinden","portalSync","portalTrennen"].forEach(id=>{const b=root.document.getElementById(id);if(b)b.disabled=an;});
   }
+  function requestContext(error,includeStatus=true){
+    const stage=({"form-load":"Anmeldeformular laden","login-submit":"Anmeldung senden","day-fetch":"Tagesplan abrufen"})[error?.requestStage];
+    const page=({login:"Loginseite",day:"Tagesseite",other:"andere Portalseite",unknown:"unbekannt"})[error?.responsePage];
+    const details=[];
+    if(typeof stage==="string") details.push(stage);
+    if(includeStatus&&Number.isInteger(error?.status)&&error.status>=100&&error.status<=599) details.push(`HTTP ${error.status}`);
+    if(typeof page==="string") details.push(`Ziel: ${page}`);
+    return details.length?` (${details.join(" · ")})`:"";
+  }
   function fehlerText(e){
-    if(e?.code==="LOGIN_FEHLER") return "LOGIN_FEHLER: Anmeldung fehlgeschlagen oder Sitzung abgelaufen.";
+    if(e?.code==="LOGIN_FEHLER") return `LOGIN_FEHLER${requestContext(e)}: ${e.loginReason==="login-form"?"Das Portal liefert erneut ein Loginformular.":"Das Portal hat die Anmeldung oder Sitzung nicht bestätigt."}`;
     if(e?.code==="PARSER_FEHLER"){
       const stage=({"form-discovery":"Formularsuche","form-validation":"Formularprüfung","table-parser":"Tabellenparser"})[e.stage];
-      return `PARSER_FEHLER (${typeof stage==="string"?stage:"unbekannte Stufe"}): Die Portal-Seite hat eine unerwartete Struktur. Es wurden keine Daten übernommen.`;
+      return `PARSER_FEHLER (${typeof stage==="string"?stage:"unbekannte Stufe"})${requestContext(e)}: Die Portal-Seite hat eine unerwartete Struktur. Es wurden keine Daten übernommen.`;
     }
     if(e?.code==="HTTP_FEHLER"){
       const status=Number.isInteger(e.status)&&e.status>=100&&e.status<=599?e.status:"unbekannt";
-      return `HTTP_FEHLER (HTTP ${status}): Das Schulportal konnte die Anfrage nicht ausführen.`;
+      return `HTTP_FEHLER (HTTP ${status})${requestContext(e,false)}: Das Schulportal konnte die Anfrage nicht ausführen.`;
     }
-    if(e?.code==="TIMEOUT") return "TIMEOUT: Das Schulportal antwortet nicht rechtzeitig.";
-    return "PORTAL_FEHLER: Die Portal-Anfrage konnte nicht abgeschlossen werden.";
+    if(e?.code==="TIMEOUT") return `TIMEOUT${requestContext(e)}: Das Schulportal antwortet nicht rechtzeitig.`;
+    return `PORTAL_FEHLER${requestContext(e)}: Die Portal-Anfrage konnte nicht abgeschlossen werden.`;
   }
   function tageNaechsteWoche(){
     const h=new Date(),r=[];

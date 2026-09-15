@@ -10,13 +10,14 @@ Alternativ steht dieselbe APK unter **Releases → `preview`** bereit. Die insta
 
 > Die aktuelle Fassung ist eine installierbare Preview mit fester Preview-Signatur. Sie verwendet weiterhin die provisorische Android-App-ID `com.djkamma420.xyz.dev` und ist noch kein Play-Store-Release.
 
-## Stand 0.4.2
+## Stand 0.4.3
 
-Zusätzlich zu mehreren deterministisch zusammengeführten Planquellen enthält 0.4.2 die direkte Android-Anbindung an **virtueller-stundenplan.org** mit korrigierter Login-Erkennung:
+0.4.3 ergänzt die direkte Android-Anbindung an **virtueller-stundenplan.org** um Diagnosen für den weiterhin gemeldeten Loginfehler. Ein erfolgreicher Login mit dem betroffenen Konto ist nicht bestätigt. Die folgenden Funktionen bleiben erhalten:
 
 - Formularparameter aus der aktuellen Portalseite statt einer veralteten Kennung
 - identische Formular-Duplikate sind zulässig; Tagespläne mit zusätzlichem Login-Template werden als Pläne erkannt
 - sichtbare Fehlercodes mit Parserstufe und HTTP-Status
+- getrennte Diagnosen für Formularabruf, Passwort-POST und Tagesabruf, einschließlich sicherer Zielseiten-Kategorie
 - ausschließlich virtueller-stundenplan.org als Online-Stundenplandienst; bisherige Linkquellen bleiben lokale Kopien
 - persönlicher Benutzer-/Mail-Login mit Passwort direkt vom Gerät zum Schulportal
 - geschützte lokale Speicherung über Android Keystore bei „angemeldet bleiben“
@@ -61,4 +62,4 @@ Portal-Zugangsdaten gehören ausschließlich in die App und niemals in Repositor
 
 ## Preview-Veröffentlichung
 
-Version 0.4.2 verwendet Android-Versionscode 7. Ein einziger Workflow prüft und baut die APK, testet das Upgrade von der bisherigen Preview mit Datenerhalt und veröffentlicht genau dieses Artefakt nach erfolgreichem Main-Lauf. Das feste `preview`-Release, der Dateiname `xyz.apk`, der Preview-Schlüssel und die In-App-Updatequelle bleiben bestehen.
+Version 0.4.3 verwendet Android-Versionscode 8. Ein einziger Workflow prüft und baut die APK, testet das Upgrade von der bisherigen Preview mit Datenerhalt und veröffentlicht genau dieses Artefakt nach erfolgreichem Main-Lauf. Das feste `preview`-Release, der Dateiname `xyz.apk`, der Preview-Schlüssel und die In-App-Updatequelle bleiben bestehen.

@@ -205,3 +205,68 @@ test("71 HTTP errors retain their status even when the response embeds a login f
     await assert.rejects(()=>client.tagAbrufen("2026-09-14"),e=>e.code==="HTTP_FEHLER"&&e.status===status);
   }
 });
+
+test("72 login rejection identifies the POST response without storing credentials",async()=>{
+  const calls=[],writes=[];
+  const bridge={request:async req=>{calls.push(req.method);return {status:200,body:loginHtml,url:'https://virtueller-stundenplan.org:443/'};},secureSet:async()=>writes.push(true)};
+  await assert.rejects(()=>new V.PortalClient({bridge}).anmelden({benutzer:'test',passwort:'test'}),error=>{
+    assert.equal(error.code,'LOGIN_FEHLER');assert.equal(error.requestStage,'login-submit');
+    assert.equal(error.status,200);assert.equal(error.responsePage,'login');assert.equal(error.loginReason,'login-form');return true;
+  });
+  assert.deepEqual(calls,['GET','POST']);assert.deepEqual(writes,[]);
+});
+test("73 expired day session is distinguished from a rejected login POST",async()=>{
+  const calls=[],writes=[];
+  const bridge={request:async req=>{calls.push(req.method);return req.method==='POST'?{status:200,body:'',url:V.PORTAL_DAY}:{status:200,body:loginHtml,url:V.PORTAL_LOGIN};},secureSet:async()=>writes.push(true)};
+  await assert.rejects(()=>new V.PortalClient({bridge}).anmelden({benutzer:'test',passwort:'test'}),error=>{
+    assert.equal(error.code,'LOGIN_FEHLER');assert.equal(error.requestStage,'day-fetch');
+    assert.equal(error.status,200);assert.equal(error.responsePage,'login');assert.equal(error.loginReason,'login-form');return true;
+  });
+  assert.deepEqual(calls,['GET','POST','GET']);assert.deepEqual(writes,[]);
+});
+test("74 request stages survive timeouts, HTTP failures and parser failures",async()=>{
+  for(const [index,requestStage] of ['form-load','login-submit','day-fetch'].entries()){
+    for(const failure of ['timeout','http','parser']){
+      if(failure==='parser'&&requestStage==='login-submit')continue;
+      let count=0;
+      const bridge={request:async req=>{
+        if(count++===index){
+          if(failure==='timeout')throw {code:'TIMEOUT'};
+          return {status:failure==='http'?503:200,body:'<html></html>',url:req.url};
+        }
+        return {status:200,body:req.resetSession?loginHtml:portalHtml,url:req.url};
+      }};
+      await assert.rejects(()=>new V.PortalClient({bridge}).anmelden({benutzer:'test',passwort:'test',merken:false}),error=>{
+        assert.equal(error.requestStage,requestStage);
+        assert.equal(error.code,{timeout:'TIMEOUT',http:'HTTP_FEHLER',parser:'PARSER_FEHLER'}[failure]);
+        if(failure==='http')assert.equal(error.status,503);
+        if(failure==='parser')assert.equal(error.stage,requestStage==='form-load'?'form-discovery':'table-parser');
+        return true;
+      });
+    }
+  }
+});
+test("75 diagnostic errors discard response content and untrusted bridge metadata",async()=>{
+  const privateDetail='<html>private response</html>';
+  const bridge={request:async()=>{throw {code:privateDetail,message:privateDetail,status:privateDetail,stage:privateDetail,body:privateDetail,url:privateDetail};}};
+  await assert.rejects(()=>new V.PortalClient({bridge}).anmelden({benutzer:'test',passwort:'test'}),error=>{
+    assert.equal(error.code,'PORTAL_FEHLER');assert.equal(error.requestStage,'form-load');
+    assert.ok(!JSON.stringify(error).includes(privateDetail));assert.ok(!error.message.includes(privateDetail));return true;
+  });
+});
+test("76 response destinations expose only fixed page categories",async()=>{
+  for(const [url,responsePage] of [
+    ['https://virtueller-stundenplan.org:443/','login'],
+    ['https://virtueller-stundenplan.org/index.php?private=value#fragment','login'],
+    ['https://virtueller-stundenplan.org/page2/','day'],
+    ['https://virtueller-stundenplan.org/page2/index.php?private=value','day'],
+    ['https://virtueller-stundenplan.org/private','other'],
+    ['https://foreign.invalid/private','unknown'],
+    [undefined,'unknown']
+  ]){
+    const bridge={request:async()=>({status:200,body:loginHtml,url})};
+    await assert.rejects(()=>new V.PortalClient({bridge}).anmelden({benutzer:'test',passwort:'test'}),error=>{
+      assert.equal(error.responsePage,responsePage);assert.ok(!JSON.stringify(error).includes('private'));return true;
+    });
+  }
+});

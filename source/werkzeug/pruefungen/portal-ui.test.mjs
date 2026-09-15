@@ -86,3 +86,16 @@ test('06 untrusted error details are never copied into the UI',async()=>{
     assert.ok(!h.elements.portalStatus.textContent.includes('private response'));
   }
 });
+
+test('07 login diagnostics show the failing request, status and safe destination',async()=>{
+  for(const [requestStage,label] of [['login-submit','Anmeldung senden'],['day-fetch','Tagesplan abrufen']]){
+    const h=harness({anmelden:async()=>{throw {code:'LOGIN_FEHLER',requestStage,status:200,responsePage:'login',loginReason:'login-form'};}});
+    await Promise.resolve();await h.elements.portalVerbinden.onclick();
+    const message=h.elements.portalStatus.textContent;
+    assert.match(message,/LOGIN_FEHLER/);assert.ok(message.includes(label));
+    assert.match(message,/HTTP 200/);assert.match(message,/Ziel: Loginseite/);assert.match(message,/Loginformular/);
+  }
+  const h=harness({anmelden:async()=>{throw {code:'LOGIN_FEHLER',requestStage:'<html>private</html>',status:'private',responsePage:'private',message:'private'};}});
+  await Promise.resolve();await h.elements.portalVerbinden.onclick();
+  assert.ok(!h.elements.portalStatus.textContent.includes('private'));
+});

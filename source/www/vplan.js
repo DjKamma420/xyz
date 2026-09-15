@@ -120,6 +120,13 @@
   function portalParserError(stage){
     return Object.assign(new Error("Unexpected portal HTML structure."),{code:"PARSER_FEHLER",stage});
   }
+  function portalResponsePage(value){
+    if(!portalUrlErlaubt(value)) return "unknown";
+    const path=new URL(value).pathname;
+    if(["/","/index.php"].includes(path)) return "login";
+    if(["/page2/","/page2/index.php"].includes(path)) return "day";
+    return "other";
+  }
   function portalHtmlSource(html){
     return String(html||"").replace(/<!--[\s\S]*?-->/g,"")
       .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,"");
@@ -316,31 +323,52 @@
     }
     _secretKey(base){ return this.secretScope ? `${base}.${this.secretScope}` : base; }
     _bereit(){ if(!this.bridge?.request) throw Object.assign(new Error("Native Portal-Brücke nicht verfügbar."),{code:"BRIDGE_FEHLT"}); }
+    async _request(request,requestStage,parse){
+      let response;
+      try{
+        response=await this.bridge.request(request);
+        return parse(response);
+      }catch(error){
+        // Keep only diagnostic categories; never copy HTML, URLs or bridge messages.
+        const codes=["LOGIN_FEHLER","PARSER_FEHLER","HTTP_FEHLER","TIMEOUT","NETWORK_ERROR","ANTWORT_UNGUELTIG","PORTAL_URL_UNGUELTIG"];
+        const failure=Object.assign(new Error("Portal request failed."),{
+          code:codes.includes(error?.code)?error.code:"PORTAL_FEHLER",requestStage,
+          responsePage:portalResponsePage(response?.url)
+        });
+        const status=response?.status??error?.status;
+        if(Number.isInteger(status)&&status>=100&&status<=599) failure.status=status;
+        if(["form-discovery","form-validation","table-parser"].includes(error?.stage)) failure.stage=error.stage;
+        if(failure.code==="LOGIN_FEHLER"&&portalIstLoginHtml(response?.body)) failure.loginReason="login-form";
+        throw failure;
+      }
+    }
     async _tag(d){
       this._bereit();
-      const a=await this.bridge.request({...portalDayRequest(d),maxBytes:this.maxResponseBytes,sessionScope:this.secretScope});
-      if(!a || typeof a.status!=="number") throw Object.assign(new Error("Ungültige Portalantwort."),{code:"ANTWORT_UNGUELTIG"});
-      if(a.status===401 || a.status===403 || (a.status>=300&&a.status<400))
-        throw Object.assign(new Error("Portal-Anmeldung ist nicht gültig."),{code:"LOGIN_FEHLER",status:a.status});
-      if(a.status<200 || a.status>=300) throw Object.assign(new Error(`Virtueller Stundenplan: HTTP ${a.status}.`),{code:"HTTP_FEHLER",status:a.status});
-      return parsePortalDayHtml(a.body);
+      return this._request({...portalDayRequest(d),maxBytes:this.maxResponseBytes,sessionScope:this.secretScope},"day-fetch",response=>{
+        if(!response || typeof response.status!=="number") throw Object.assign(new Error("Invalid portal response."),{code:"ANTWORT_UNGUELTIG"});
+        if(response.status===401 || response.status===403 || (response.status>=300&&response.status<400))
+          throw Object.assign(new Error("Portal authentication failed."),{code:"LOGIN_FEHLER"});
+        if(response.status<200 || response.status>=300) throw Object.assign(new Error("Portal HTTP error."),{code:"HTTP_FEHLER"});
+        return parsePortalDayHtml(response.body);
+      });
     }
     async anmelden({benutzer,passwort,merken=true,datum:tag}={}){
       this._bereit();
       const user=text(benutzer,254), pass=String(passwort??"");
       if(!user || !pass || pass.length>2048) throw Object.assign(new Error("Benutzer und Passwort fehlen."),{code:"LOGIN_DATEN_FEHLEN"});
-      const form=await this.bridge.request({url:PORTAL_LOGIN,method:"GET",timeoutMs:15000,maxBytes:this.maxResponseBytes,
-        sessionScope:this.secretScope,resetSession:true,headers:{Accept:"text/html,*/*"}});
-      if(!form || typeof form.status!=="number" || form.status<200 || form.status>=300)
-        throw Object.assign(new Error("Portal-Anmeldeformular konnte nicht geladen werden."),{code:"HTTP_FEHLER",status:form?.status});
-      const formName=portalLoginForm(form.body);
-      const a=await this.bridge.request({...portalLoginRequest(user,pass,formName),maxBytes:this.maxResponseBytes,sessionScope:this.secretScope});
-      if(!a || typeof a.status!=="number") throw Object.assign(new Error("Invalid portal response."),{code:"ANTWORT_UNGUELTIG"});
-      if(a.status===401 || a.status===403 || (a.status>=300&&a.status<400))
-        throw Object.assign(new Error("Portal authentication failed."),{code:"LOGIN_FEHLER",status:a.status});
-      if(a.status<200 || a.status>=300) throw Object.assign(new Error(`Portal HTTP ${a.status}.`),{code:"HTTP_FEHLER",status:a.status});
-      if(portalIstLoginHtml(a.body))
-        throw Object.assign(new Error("Anmeldung beim Virtuellen Stundenplan fehlgeschlagen."),{code:"LOGIN_FEHLER",status:a?.status});
+      const formName=await this._request({url:PORTAL_LOGIN,method:"GET",timeoutMs:15000,maxBytes:this.maxResponseBytes,
+        sessionScope:this.secretScope,resetSession:true,headers:{Accept:"text/html,*/*"}},"form-load",response=>{
+        if(!response || typeof response.status!=="number" || response.status<200 || response.status>=300)
+          throw Object.assign(new Error("Portal login form could not be loaded."),{code:"HTTP_FEHLER"});
+        return portalLoginForm(response.body);
+      });
+      await this._request({...portalLoginRequest(user,pass,formName),maxBytes:this.maxResponseBytes,sessionScope:this.secretScope},"login-submit",response=>{
+        if(!response || typeof response.status!=="number") throw Object.assign(new Error("Invalid portal response."),{code:"ANTWORT_UNGUELTIG"});
+        if(response.status===401 || response.status===403 || (response.status>=300&&response.status<400))
+          throw Object.assign(new Error("Portal authentication failed."),{code:"LOGIN_FEHLER"});
+        if(response.status<200 || response.status>=300) throw Object.assign(new Error("Portal HTTP error."),{code:"HTTP_FEHLER"});
+        if(portalIstLoginHtml(response.body)) throw Object.assign(new Error("Portal returned a login form."),{code:"LOGIN_FEHLER"});
+      });
       const d=datum(tag)||new Date().toISOString().slice(0,10);
       const rows=await this._tag(d);
       if(merken){
