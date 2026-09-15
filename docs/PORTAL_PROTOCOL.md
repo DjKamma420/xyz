@@ -75,3 +75,19 @@ Referenz für die beobachtete Drittclient-Implementierung:
 - Native Java-Tests prüfen Cookie-Übernahme, Profiltrennung, HTTPS-/Hostgrenzen, Redirect-Methoden, Schleifen und Größenlimits über simulierte Verbindungen.
 - CI prüft zusätzlich Android Lint, APK-Signatur, Manifest und Upgrade der bisherigen APK auf Android 35 mit Datenerhalt und App-Start.
 - Ein erfolgreicher Login mit einem echten Schulkonto ist ohne bereitgestelltes Testkonto nicht überprüft.
+
+## Weitere Diagnose in 0.4.3
+
+Am 15.09.2026 wurde nach dem Update auf 0.4.2 weiterhin `LOGIN_FEHLER` gemeldet. Die aktuelle öffentliche Anmeldeseite enthält ein gültiges Formular, das der vorhandene Parser korrekt erkennt. Die beobachteten Feldnamen und der durch den Login-Button gesetzte Aktionswert stimmen mit dem Request überein; die Inline-Skripte und `rw_common/assets/global.js` enthalten keine zusätzliche Passwortumwandlung. Ohne Anmeldung führt der Tagesabruf zur Loginseite zurück. Diese öffentlichen Prüfungen belegen weder eine erfolgreiche Konto-Anmeldung noch die Ursache der gemeldeten Ablehnung.
+
+0.4.2 verwendete dieselbe Meldung für ein Loginformular in der POST-Antwort und für einen späteren fehlgeschlagenen Tagesabruf. 0.4.3 behebt diese Diagnose-Lücke, ohne Anmeldeentscheidungen, Request-Reihenfolge oder native Cookie-/Redirect-Logik zu verändern:
+
+- `requestStage=form-load`: Anmeldeformular laden.
+- `requestStage=login-submit`: Anmeldung senden.
+- `requestStage=day-fetch`: Tagesplan abrufen.
+- Der numerische HTTP-Status wird auch bei `LOGIN_FEHLER` erhalten und angezeigt.
+- `responsePage` enthält ausschließlich `login`, `day`, `other` oder `unknown`; vollständige URLs, Queryparameter und Fragmente werden nicht übernommen. Die Kategorie beschreibt das Ziel der Antwort und beweist keine erfolgreiche Anmeldung.
+- `loginReason=login-form` kennzeichnet eine Antwort, in der tatsächlich das Loginformular erkannt wurde. Daraus wird keine Behauptung über ein falsches Passwort abgeleitet.
+- Parserstufen bleiben erhalten. Fehler aus der Brücke werden auf bekannte Codes und feste Metadaten reduziert; HTML, Cookies, Zugangsdaten und beliebige Fehlermeldungen werden nicht kopiert.
+
+Die VPlan-Tests 72–76 und UI-Test 07 schlugen vor dieser Änderung fehl und bestehen danach. Sie unterscheiden die beiden Login-Fehlerpfade, erhalten Diagnosekontext bei HTTP-/Timeout-/Parserfehlern und prüfen das Verwerfen ungeprüfter Metadaten. 0.4.3 ist eine Diagnose-Preview; die konkrete Ursache des Konto-Fehlers bleibt ohne eine Antwort aus dem betroffenen Anmeldeablauf offen.
