@@ -114,10 +114,17 @@
     ["portalVerbinden","portalSync","portalTrennen"].forEach(id=>{const b=root.document.getElementById(id);if(b)b.disabled=an;});
   }
   function fehlerText(e){
-    if(e?.code==="LOGIN_FEHLER") return "Anmeldung fehlgeschlagen oder Sitzung abgelaufen.";
-    if(e?.code==="PARSER_FEHLER") return "Die Portal-Seite hat eine unerwartete Struktur. Es wurden keine Daten übernommen.";
-    if(e?.code==="TIMEOUT") return "Das Schulportal antwortet nicht rechtzeitig.";
-    return String(e?.message||e||"Unbekannter Fehler").slice(0,240);
+    if(e?.code==="LOGIN_FEHLER") return "LOGIN_FEHLER: Anmeldung fehlgeschlagen oder Sitzung abgelaufen.";
+    if(e?.code==="PARSER_FEHLER"){
+      const stage=({"form-discovery":"Formularsuche","form-validation":"Formularprüfung","table-parser":"Tabellenparser"})[e.stage];
+      return `PARSER_FEHLER (${typeof stage==="string"?stage:"unbekannte Stufe"}): Die Portal-Seite hat eine unerwartete Struktur. Es wurden keine Daten übernommen.`;
+    }
+    if(e?.code==="HTTP_FEHLER"){
+      const status=Number.isInteger(e.status)&&e.status>=100&&e.status<=599?e.status:"unbekannt";
+      return `HTTP_FEHLER (HTTP ${status}): Das Schulportal konnte die Anfrage nicht ausführen.`;
+    }
+    if(e?.code==="TIMEOUT") return "TIMEOUT: Das Schulportal antwortet nicht rechtzeitig.";
+    return "PORTAL_FEHLER: Die Portal-Anfrage konnte nicht abgeschlossen werden.";
   }
   function tageNaechsteWoche(){
     const h=new Date(),r=[];

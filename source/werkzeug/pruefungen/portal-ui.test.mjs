@@ -62,3 +62,27 @@ test('Portal-Tagescache wird auch ohne lokale Planquelle erkannt',async()=>{
   assert.equal(h.context.XyzPortal.hatTag('2026-09-14'),true);
   assert.equal(h.context.XyzPortal.hatTag('2026-09-15'),false);
 });
+
+test('05 diagnostic codes and safe parser stages remain visible in the UI',async()=>{
+  const cases=[
+    [{code:'LOGIN_FEHLER'},'LOGIN_FEHLER'],
+    [{code:'PARSER_FEHLER',stage:'form-discovery'},'PARSER_FEHLER (Formularsuche)'],
+    [{code:'PARSER_FEHLER',stage:'form-validation'},'PARSER_FEHLER (Formularprüfung)'],
+    [{code:'PARSER_FEHLER',stage:'table-parser'},'PARSER_FEHLER (Tabellenparser)'],
+    [{code:'HTTP_FEHLER',status:503},'HTTP_FEHLER (HTTP 503)'],
+    [{code:'TIMEOUT'},'TIMEOUT']
+  ];
+  for(const [error,expected] of cases){
+    const h=harness({anmelden:async()=>{throw {...error,message:'<html>private response</html>'};}});
+    await Promise.resolve();await h.elements.portalVerbinden.onclick();
+    assert.ok(h.elements.portalStatus.textContent.startsWith(expected));
+    assert.ok(!h.elements.portalStatus.textContent.includes('private response'));
+  }
+});
+test('06 untrusted error details are never copied into the UI',async()=>{
+  for(const error of [{code:'PARSER_FEHLER',stage:'<html>private response</html>'},{code:'UNKNOWN'},{code:'HTTP_FEHLER',status:'<html>private response</html>'}]){
+    const h=harness({anmelden:async()=>{throw {...error,message:'<html>private response</html>'};}});
+    await Promise.resolve();await h.elements.portalVerbinden.onclick();
+    assert.ok(!h.elements.portalStatus.textContent.includes('private response'));
+  }
+});
