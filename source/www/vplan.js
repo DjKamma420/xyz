@@ -117,30 +117,44 @@
         && (!u.port||u.port==="443") && !u.username && !u.password;
     }catch(e){return false;}
   }
-  function portalLoginForm(html){
-    const fehler=()=>Object.assign(new Error("Das Portal-Anmeldeformular hat eine unerwartete Struktur."),{code:"PARSER_FEHLER"});
-    const attribute=tag=>Object.fromEntries([...tag.matchAll(/([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g)]
+  function portalParserError(stage){
+    return Object.assign(new Error("Unexpected portal HTML structure."),{code:"PARSER_FEHLER",stage});
+  }
+  function portalHtmlSource(html){
+    return String(html||"").replace(/<!--[\s\S]*?-->/g,"")
+      .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,"");
+  }
+  function portalAttributes(tag){
+    return Object.fromEntries([...tag.matchAll(/([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g)]
       .map(m=>[m[1].toLowerCase(),htmlDecode(m[2]??m[3]??m[4])]));
-    const quelle=String(html||"").replace(/<!--[\s\S]*?-->/g,"").replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi,"");
-    const gefunden=[];
-    for(const m of quelle.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form\s*>/gi)){
-      const fields=[...m[2].matchAll(/<input\b[^>]*>/gi)].map(x=>attribute(x[0]));
+  }
+  function portalLoginForms(html){
+    const forms=[];
+    for(const match of portalHtmlSource(html).matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form\s*>/gi)){
+      const fields=[...match[2].matchAll(/<input\b[^>]*>/gi)].map(x=>portalAttributes(x[0]));
       if(!fields.some(x=>x.name==="MAIL") || !fields.some(x=>x.name==="SCHUELERCODE")) continue;
-      const form=attribute(m[1]);
-      let action; try{action=new URL(form.action||"",PORTAL_LOGIN);}catch(e){throw fehler();}
-      if(form.method?.toLowerCase()!=="post" || !portalUrlErlaubt(action.href) || action.pathname!=="/index.php" || action.search || action.hash) throw fehler();
-      const names=fields.filter(x=>x.name==="formName" && x.type?.toLowerCase()==="hidden");
-      if(names.length!==1 || !/^stacks_in_\d+(?:_page\d+)?$/.test(names[0].value||"")) throw fehler();
-      if(!fields.some(x=>x.name==="formAction" && x.type?.toLowerCase()==="hidden")) throw fehler();
-      gefunden.push(names[0].value);
+      forms.push({attributes:portalAttributes(match[1]),fields});
     }
-    if(gefunden.length!==1) throw fehler();
-    return gefunden[0];
+    return forms;
+  }
+  function portalLoginForm(html){
+    const forms=portalLoginForms(html), namesFound=new Set();
+    if(!forms.length) throw portalParserError("form-discovery");
+    for(const {attributes:form,fields} of forms){
+      let action; try{action=new URL(form.action||"",PORTAL_LOGIN);}catch(e){throw portalParserError("form-validation");}
+      if(form.method?.toLowerCase()!=="post" || !portalUrlErlaubt(action.href) || action.pathname!=="/index.php" || action.search || action.hash) throw portalParserError("form-validation");
+      const names=fields.filter(x=>x.name==="formName" && x.type?.toLowerCase()==="hidden");
+      if(names.length!==1 || !/^stacks_in_\d+(?:_page\d+)?$/.test(names[0].value||"")) throw portalParserError("form-validation");
+      if(!fields.some(x=>x.name==="formAction" && x.type?.toLowerCase()==="hidden")) throw portalParserError("form-validation");
+      namesFound.add(names[0].value);
+    }
+    if(namesFound.size!==1) throw portalParserError("form-validation");
+    return [...namesFound][0];
   }
   function portalLoginRequest(benutzer,passwort,formName){
     const user=text(benutzer,254), pass=String(passwort??"");
     if(!user || !pass || pass.length>2048) throw Object.assign(new Error("Benutzer und Passwort fehlen."),{code:"LOGIN_DATEN_FEHLEN"});
-    if(!/^stacks_in_\d+(?:_page\d+)?$/.test(formName||"")) throw Object.assign(new Error("Portal-Formularkennung fehlt."),{code:"PARSER_FEHLER"});
+    if(!/^stacks_in_\d+(?:_page\d+)?$/.test(formName||"")) throw portalParserError("form-validation");
     return {
       url:PORTAL_LOGIN, method:"POST", timeoutMs:15000, maxBytes:MAX_RESPONSE,
       headers:{"Content-Type":"application/x-www-form-urlencoded","Accept":"text/html,*/*"},
@@ -154,9 +168,8 @@
       method:"GET",timeoutMs:15000,maxBytes:MAX_RESPONSE,headers:{Accept:"text/html,*/*"}};
   }
   function portalIstLoginHtml(html){
-    const s=text(html,250000).toLowerCase();
-    return (s.includes("schuelercode") && (s.includes("stacks_in_368_page1") || s.includes("formaction")))
-      || s.includes("anmeldung für schülerinnen und schüler");
+    if(portalTableBlock(html)!==null) return false;
+    return portalLoginForms(html).length>0;
   }
   function htmlDecode(s){
     return String(s||"")
@@ -176,16 +189,28 @@
     while((m=re.exec(String(fragment||"")))) raus.push(...htmlWerte(m[1]));
     return [...new Set(raus)];
   }
+  function portalTableBlock(html,title=null){
+    const source=portalHtmlSource(html), divs=[];
+    let start=null, depth=0;
+    // Require table ancestry, including nested wrappers, rather than nearby keywords.
+    for(const match of source.matchAll(/<(\/?)(div|table)\b[^>]*>/gi)){
+      const closing=!!match[1], tag=match[2].toLowerCase();
+      if(tag==="div"){
+        if(closing) divs.pop(); else divs.push(portalAttributes(match[0])["data-title"]);
+      }else if(!closing){
+        if(start!==null) depth++;
+        else if(portalAttributes(match[0]).id==="editableTable"
+          && divs.some(value=>title===null?["Fach","LK","Raum"].includes(value):value===title)){
+          start=match.index+match[0].length;depth=1;
+        }
+      }else if(start!==null && --depth===0) return source.slice(start,match.index);
+    }
+    return null;
+  }
   function portalTabelle(html,titel){
-    const quelle=String(html||"");
-    const mark=new RegExp(`data-title\\s*=\\s*["']${titel.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")}["']`,`i`).exec(quelle);
-    if(!mark) return [];
-    const ab=quelle.slice(mark.index);
-    const start=/<table\b[^>]*id\s*=\s*["']editableTable["'][^>]*>/i.exec(ab);
-    if(!start) return [];
-    const von=start.index+start[0].length, ende=ab.toLowerCase().indexOf("</table>",von);
-    if(ende<0) return [];
-    const block=ab.slice(von,ende), raus=[]; let row;
+    const block=portalTableBlock(html,titel);
+    if(block===null) return [];
+    const raus=[]; let row;
     const rowRe=/<tr\b[^>]*>([\s\S]*?)<\/tr\s*>/gi;
     while((row=rowRe.exec(block))){
       const cells=[]; let cell; const cellRe=/<td\b[^>]*>([\s\S]*?)<\/td\s*>/gi;
@@ -212,7 +237,7 @@
     const maps=[fach,lk,raum].map(list=>new Map(list.map(x=>[key(x),x])));
     const reihe=[];
     for(const list of [fach,lk,raum]) for(const x of list){ const k=key(x); if(k&&!reihe.includes(k)) reihe.push(k); }
-    if(!reihe.length) throw Object.assign(new Error("Keine Stundenplantabellen gefunden."),{code:"PARSER_FEHLER"});
+    if(!reihe.length) throw portalParserError("table-parser");
     return reihe.map(k=>{
       const f=maps[0].get(k), l=maps[1].get(k), r=maps[2].get(k), basis=f||l||r;
       const join=x=>(x?.werte||[]).join(" / ");
@@ -295,7 +320,7 @@
       this._bereit();
       const a=await this.bridge.request({...portalDayRequest(d),maxBytes:this.maxResponseBytes,sessionScope:this.secretScope});
       if(!a || typeof a.status!=="number") throw Object.assign(new Error("Ungültige Portalantwort."),{code:"ANTWORT_UNGUELTIG"});
-      if(a.status===401 || a.status===403 || (a.status>=300&&a.status<400) || portalIstLoginHtml(a.body))
+      if(a.status===401 || a.status===403 || (a.status>=300&&a.status<400))
         throw Object.assign(new Error("Portal-Anmeldung ist nicht gültig."),{code:"LOGIN_FEHLER",status:a.status});
       if(a.status<200 || a.status>=300) throw Object.assign(new Error(`Virtueller Stundenplan: HTTP ${a.status}.`),{code:"HTTP_FEHLER",status:a.status});
       return parsePortalDayHtml(a.body);
@@ -310,7 +335,11 @@
         throw Object.assign(new Error("Portal-Anmeldeformular konnte nicht geladen werden."),{code:"HTTP_FEHLER",status:form?.status});
       const formName=portalLoginForm(form.body);
       const a=await this.bridge.request({...portalLoginRequest(user,pass,formName),maxBytes:this.maxResponseBytes,sessionScope:this.secretScope});
-      if(!a || typeof a.status!=="number" || a.status<200 || a.status>=300 || portalIstLoginHtml(a.body))
+      if(!a || typeof a.status!=="number") throw Object.assign(new Error("Invalid portal response."),{code:"ANTWORT_UNGUELTIG"});
+      if(a.status===401 || a.status===403 || (a.status>=300&&a.status<400))
+        throw Object.assign(new Error("Portal authentication failed."),{code:"LOGIN_FEHLER",status:a.status});
+      if(a.status<200 || a.status>=300) throw Object.assign(new Error(`Portal HTTP ${a.status}.`),{code:"HTTP_FEHLER",status:a.status});
+      if(portalIstLoginHtml(a.body))
         throw Object.assign(new Error("Anmeldung beim Virtuellen Stundenplan fehlgeschlagen."),{code:"LOGIN_FEHLER",status:a?.status});
       const d=datum(tag)||new Date().toISOString().slice(0,10);
       const rows=await this._tag(d);

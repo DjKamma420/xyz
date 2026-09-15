@@ -83,8 +83,8 @@ jobs:
           printf '%s\n' "$BADGING"
           grep -q "package: name='com.djkamma420.xyz.dev'" <<<"$BADGING"
           grep -q "application-label:'xyz'" <<<"$BADGING"
-          grep -q "versionName='0.4.1'" <<<"$BADGING"
-          grep -q "versionCode='6'" <<<"$BADGING"
+          grep -q "versionName='0.4.2'" <<<"$BADGING"
+          grep -q "versionCode='7'" <<<"$BADGING"
           sha256sum "$APK"
 
       - name: Android-Emulator vorbereiten
@@ -146,7 +146,7 @@ jobs:
           "$ADB" shell am start -W -n com.djkamma420.xyz.dev/.MainActivity | tee /tmp/xyz-launch.txt
           grep -Eq '^Status: ok$|^Complete$' /tmp/xyz-launch.txt
           test -n "$("$ADB" shell pidof com.djkamma420.xyz.dev | tr -d '\r')"
-          "$ADB" shell dumpsys package com.djkamma420.xyz.dev | grep -q 'versionName=0.4.1'
+          "$ADB" shell dumpsys package com.djkamma420.xyz.dev | grep -q 'versionName=0.4.2'
           "$ADB" emu kill || true
 
       - name: Emulator-Log bei Fehler ausgeben
@@ -196,7 +196,7 @@ jobs:
           if git diff --cached --quiet; then
             echo 'xyz.apk ist bereits aktuell.'
           else
-            git commit -m 'Aktualisiere installierbare xyz.apk auf 0.4.1'
+            git commit -m 'Update installable xyz.apk to 0.4.2'
             git push origin HEAD:main
           fi
 
@@ -207,15 +207,15 @@ jobs:
         run: |
           set -euo pipefail
           cat > "$RUNNER_TEMP/preview-notes.txt" <<'NOTES'
-          version=0.4.1
-          Login-Fix für virtueller-stundenplan.org: aktuelle Formularkennung, sichere Weiterleitungen und getrennte Sitzungen je Profil. Andere Stundenplandienste werden nicht unterstützt. Feste Preview-Signatur und In-App-Updater bleiben erhalten.
+          version=0.4.2
+          Login-Fix für virtueller-stundenplan.org: strukturelle Formularerkennung, identische Formular-Duplikate und Vorrang für Tagespläne mit Login-Template. Sichtbare Fehlercodes mit Parserstufe und HTTP-Status. Ausschließlich dieser Dienst wird unterstützt; feste Preview-Signatur und In-App-Updater bleiben erhalten. Mit synthetischen Regressionstests geprüft; ein echter Schulkonto-Login ist nicht verifiziert.
           NOTES
           SHA256="$(sha256sum xyz.apk | cut -d ' ' -f1)"
           if gh release view preview --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload preview xyz.apk --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit preview \
               --repo "$GITHUB_REPOSITORY" \
-              --title 'xyz 0.4.1 Preview' \
+              --title 'xyz 0.4.2 Preview' \
               --notes-file "$RUNNER_TEMP/preview-notes.txt" \
               --prerelease
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/preview" -f sha="$GITHUB_SHA" -F force=true
@@ -223,7 +223,7 @@ jobs:
             gh release create preview xyz.apk \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title 'xyz 0.4.1 Preview' \
+              --title 'xyz 0.4.2 Preview' \
               --notes-file "$RUNNER_TEMP/preview-notes.txt" \
               --prerelease
           fi

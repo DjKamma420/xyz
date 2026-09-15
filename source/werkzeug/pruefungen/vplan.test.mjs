@@ -4,6 +4,7 @@ const loginHtml=readFileSync(new URL("./fixtures/portal-login.html",import.meta.
 import assert from "node:assert/strict";
 import "../../www/vplan.js";
 const V=globalThis.XyzVPlan;
+const fixture=name=>readFileSync(new URL(`./fixtures/${name}`,import.meta.url),"utf8");
 const slots=[{std:"1,2",von:"08:00",bis:"09:30"},{std:"3/4",von:"09:45",bis:"11:15"},{std:"5",von:"11:30",bis:"12:15"}];
 const e=(x={})=>({datum:"2026-09-14",slot:"1",art:"vertretung",fachAlt:"MA",...x});
 
@@ -48,7 +49,7 @@ const portalHtml=`<!doctype html><html><body>
 test("32 Login-Request nutzt belegte Portalparameter",()=>{const r=V.portalLoginRequest("a+b@example.org","p&x",V.portalLoginForm(loginHtml));assert.equal(r.url,V.PORTAL_LOGIN);assert.match(r.body,/MAIL=a%2Bb%40example\.org/);assert.match(r.body,/SCHUELERCODE=p%26x/);assert.match(r.body,/formAction=login/);assert.match(r.body,/formName=stacks_in_368$/)});
 test("33 Portal-Datum wird deutsch übertragen",()=>assert.match(V.portalDayRequest("2026-09-14").url,/KlaBuDatum=14\.09\.2026/));
 test("34 ungültiges Portal-Datum abgelehnt",()=>assert.throws(()=>V.portalDayRequest("14.09.2026"),x=>x.code==="DATUM_UNGUELTIG"));
-test("35 Login-HTML wird erkannt",()=>assert.equal(V.portalIstLoginHtml('<form><input name="SCHUELERCODE"><input name="formName" value="stacks_in_368_page1"></form>'),true));
+test("35 login detection uses fields in the same form",()=>assert.equal(V.portalIstLoginHtml('<form><input name="MAIL"><input name="SCHUELERCODE"></form>'),true));
 test("36 normale Planseite ist keine Loginseite",()=>assert.equal(V.portalIstLoginHtml(portalHtml),false));
 test("37 HTML-Entities werden als Text gelesen",()=>assert.deepEqual(V.htmlWerte("MA &amp; PH<br>R&amp;D"),["MA & PH","R&D"]));
 test("38 Pluspräfix wird entfernt",()=>assert.deepEqual(V.htmlWerte("+ MA<br>+ PH"),["MA","PH"]));
@@ -56,7 +57,7 @@ test("39 Fach/LK/Raum werden kombiniert",()=>{const r=V.parsePortalDayHtml(porta
 test("40 Fettdruck markiert Änderung",()=>{const r=V.parsePortalDayHtml(portalHtml);assert.equal(r[1].geaendert,true);assert.equal(r[1].fachMarkiert,"PH");assert.equal(r[1].raumMarkiert,"204")});
 test("41 Mehrfachwerte bleiben sichtbar",()=>{const r=V.parsePortalDayHtml(portalHtml);assert.equal(r[2].fach,"DE / GE");assert.equal(r[2].raum,"301 / 302")});
 test("42 Bindestrich wird leer",()=>{const r=V.parsePortalDayHtml(portalHtml);assert.equal(r[3].fach,"");assert.equal(r[3].lehrer,"");assert.equal(r[3].raum,"")});
-test("43 Loginseite wird nicht als Plan geparst",()=>assert.throws(()=>V.parsePortalDayHtml('<p>Anmeldung für Schülerinnen und Schüler</p><input name="SCHUELERCODE">'),x=>x.code==="LOGIN_FEHLER"));
+test("43 Loginseite wird nicht als Plan geparst",()=>assert.throws(()=>V.parsePortalDayHtml('<form><input name="MAIL"><input name="SCHUELERCODE"></form>'),x=>x.code==="LOGIN_FEHLER"));
 test("44 Seite ohne Tabellen wird abgelehnt",()=>assert.throws(()=>V.parsePortalDayHtml("<html>leer</html>"),x=>x.code==="PARSER_FEHLER"));
 test("45 Einzelstunden landen im 90-Minuten-Block",()=>{const r=V.portalRowsZuSlots([{slot:"1",fach:"MA"},{slot:"2",fach:"MA"}],slots);assert.equal(r.gruppen[0].index,0);assert.equal(r.gruppen[0].effektiv.fach,"MA")});
 test("46 verschiedene Einzelstunden werden transparent zusammengefasst",()=>{const r=V.portalRowsZuSlots([{slot:"1",fach:"MA"},{slot:"2",fach:"PH"}],slots);assert.equal(r.gruppen[0].effektiv.fach,"MA / PH")});
@@ -71,7 +72,7 @@ test("52 aktuelle Live-Formularkennung statt alter Page-ID",()=>{
   assert.equal(V.portalLoginForm(loginHtml.replaceAll("stacks_in_368","stacks_in_999")),"stacks_in_999");
 });
 test("53 fehlendes oder mehrdeutiges Formular wird abgelehnt",()=>{
-  for(const html of ["<html>Wartung</html>",loginHtml+loginHtml,loginHtml.replace('name="formName"','name="unknown"')])
+  for(const html of ["<html>Wartung</html>",loginHtml+loginHtml.replaceAll("stacks_in_368","stacks_in_999"),loginHtml.replace('name="formName"','name="unknown"')])
     assert.throws(()=>V.portalLoginForm(html),e=>e.code==="PARSER_FEHLER");
 });
 test("54 fremde und unsichere Formularziele werden abgelehnt",()=>{
@@ -96,7 +97,7 @@ test("57 fehlerhafter Login darf keinen alten Tagesplan als Erfolg melden",async
   for(const response of [{status:200,body:loginHtml},{status:302,body:""},{status:400,body:""},{status:401,body:""},{status:403,body:""},{status:429,body:""},{status:503,body:""}]){
     const calls=[], writes=[];
     const bridge={request:async req=>{calls.push(req);return req.resetSession?{status:200,body:loginHtml}:response;},secureSet:async x=>writes.push(x)};
-    await assert.rejects(()=>new V.PortalClient({bridge}).anmelden({benutzer:"x",passwort:"y",datum:"2026-09-14"}),e=>e.code==="LOGIN_FEHLER");
+    await assert.rejects(()=>new V.PortalClient({bridge}).anmelden({benutzer:"x",passwort:"y",datum:"2026-09-14"}),e=>e.code===([400,429,503].includes(response.status)?"HTTP_FEHLER":"LOGIN_FEHLER"));
     assert.equal(calls.length,2);assert.equal(writes.length,0);
   }
 });
@@ -130,4 +131,77 @@ test("62 generischer Adapter kann keinen anderen Dienst aufrufen",async()=>{
   const adapter={anfrage:async()=>({url:"https://example.org"}),parse:async()=>[]};
   await assert.rejects(()=>new V.VPlanClient({bridge,adapter}).abrufen(),e=>e.code==="PORTAL_URL_UNGUELTIG");
   assert.equal(requested,false);
+});
+
+test("63 embedded login form is detected without stack identifiers or action markers",()=>{
+  const html=fixture("portal-login-page.html");
+  assert.equal(V.portalLoginForm(html),"stacks_in_742");
+  assert.equal(V.portalIstLoginHtml(html.replace(/<input name="form(?:Name|Action)"[^>]*>/g,"")),true);
+});
+test("64 identical responsive login forms allow the full login sequence",async()=>{
+  const html=fixture("portal-login-duplicate.html"), calls=[];
+  assert.equal(V.portalLoginForm(html),"stacks_in_742");
+  const bridge={request:async req=>{calls.push(req);return {status:200,body:req.resetSession?html:portalHtml};}};
+  const result=await new V.PortalClient({bridge}).anmelden({benutzer:"test",passwort:"test",merken:false,datum:"2026-09-14"});
+  assert.equal(result.angemeldet,true);assert.equal(result.rows.length,4);
+  assert.deepEqual(calls.map(x=>x.method),["GET","POST","GET"]);
+  assert.equal(new URLSearchParams(calls[1].body).get("formName"),"stacks_in_742");
+});
+test("65 conflicting form names report form validation and prevent POST",async()=>{
+  const calls=[], bridge={request:async req=>{calls.push(req);return {status:200,body:fixture("portal-login-conflict.html")};}};
+  await assert.rejects(()=>new V.PortalClient({bridge}).anmelden({benutzer:"test",passwort:"test"}),e=>e.code==="PARSER_FEHLER"&&e.stage==="form-validation");
+  assert.deepEqual(calls.map(x=>x.method),["GET"]);
+});
+test("66 timetable structure takes priority over an embedded login template",async()=>{
+  const html=fixture("portal-day-with-login.html");
+  assert.equal(V.portalIstLoginHtml(html),false);
+  assert.deepEqual(V.parsePortalDayHtml(html).map(x=>[x.slot,x.fach,x.lehrer,x.raum]),[["1","MA","AB","101"],["2","PH","CD","204"]]);
+  const bridge={request:async req=>({status:200,body:req.resetSession?fixture("portal-login-page.html"):html})};
+  const result=await new V.PortalClient({bridge}).anmelden({benutzer:"test",passwort:"test",merken:false,datum:"2026-09-14"});
+  assert.equal(result.rows.length,2);
+});
+test("67 login keywords, scripts, comments and fields in separate forms are insufficient",()=>{
+  for(const html of [
+    '<p>SCHUELERCODE formAction</p>',
+    '<p>Anmeldung für Schülerinnen und Schüler</p>',
+    '<form><input name="MAIL"></form><form><input name="SCHUELERCODE"><input name="formAction"></form>',
+    `<!-- ${fixture("portal-login-page.html")} -->`,
+    `<script>const template=${JSON.stringify(fixture("portal-login-page.html"))};</script>`
+  ]) assert.equal(V.portalIstLoginHtml(html),false);
+});
+test("68 empty timetable structure takes priority but reports the table parser stage",()=>{
+  const login=fixture("portal-login-page.html");
+  for(const title of ["Fach","LK","Raum"]){
+    const html=login.replace("</main>",`<div data-title=${title}><section><table id=editableTable></table></section></div></main>`);
+    assert.equal(V.portalIstLoginHtml(html),false);
+    assert.throws(()=>V.parsePortalDayHtml(html),e=>e.code==="PARSER_FEHLER"&&e.stage==="table-parser");
+  }
+  for(const table of ['<div data-title="Fach"></div><table id="editableTable"></table>','<section data-title="Fach"><table id="editableTable"></table></section>'])
+    assert.equal(V.portalIstLoginHtml(login.replace("</main>",table+"</main>")),true);
+});
+test("69 missing login forms report form discovery without sending POST",async()=>{
+  const calls=[], bridge={request:async req=>{calls.push(req);return {status:200,body:'<html><body>Keine Anmeldung</body></html>'};}};
+  await assert.rejects(()=>new V.PortalClient({bridge}).anmelden({benutzer:"test",passwort:"test"}),e=>e.code==="PARSER_FEHLER"&&e.stage==="form-discovery");
+  assert.deepEqual(calls.map(x=>x.method),["GET"]);
+});
+test("70 all existing form safety checks retain the form validation stage",()=>{
+  const html=fixture("portal-login-page.html");
+  const unsafe=[
+    html.replace('method="post"','method="get"'),
+    ...['http://virtueller-stundenplan.org/index.php','https://other.invalid/index.php','https://virtueller-stundenplan.org:444/index.php','https://user:pass@virtueller-stundenplan.org/index.php','/other.php','/index.php?x=1','/index.php#x'].map(action=>html.replace('action="/index.php"',`action="${action}"`)),
+    html.replace('type="hidden" value="stacks_in_742"','type="text" value="stacks_in_742"'),
+    html.replace('name="formName"','name="other"'),
+    html.replace('</form>','<input type="hidden" name="formName" value="stacks_in_742"></form>'),
+    html.replace('name="formAction"','name="other"'),
+    html.replace('stacks_in_742','invalid')
+  ];
+  for(const page of unsafe) assert.throws(()=>V.portalLoginForm(page),e=>e.code==="PARSER_FEHLER"&&e.stage==="form-validation");
+});
+test("71 HTTP errors retain their status even when the response embeds a login form",async()=>{
+  for(const status of [400,429,503]){
+    const bridge={request:async req=>({status:req.resetSession?200:status,body:fixture("portal-login-page.html")})};
+    const client=new V.PortalClient({bridge});
+    await assert.rejects(()=>client.anmelden({benutzer:"test",passwort:"test"}),e=>e.code==="HTTP_FEHLER"&&e.status===status);
+    await assert.rejects(()=>client.tagAbrufen("2026-09-14"),e=>e.code==="HTTP_FEHLER"&&e.status===status);
+  }
 });

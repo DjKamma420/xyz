@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><title>Portal-Testseite</title></head>
+<body>
+<header><nav>Virtueller Stundenplan</nav></header>
+<aside hidden class="login-template">
+<form method="post" action="/index.php">
+  <label>Benutzer<input name="MAIL" type="text" value=""></label>
+  <label>Passwort<input name="SCHUELERCODE" type="password" value=""></label>
+  <input name="formName" type="hidden" value="stacks_in_742">
+  <input name="formAction" type="hidden" value="">
+  <button type="submit">Login</button>
+</form>
+</aside>
+<main>
+<div data-title="Fach"><div class="responsive"><table id="editableTable"><tr><th>Std.</th><th>Fach</th></tr><tr><td>1</td><td>MA</td></tr><tr><td>2</td><td><b>PH</b></td></tr></table></div></div>
+<div data-title="LK"><table id="editableTable"><tr><th>Std.</th><th>LK</th></tr><tr><td>1</td><td>AB</td></tr><tr><td>2</td><td>CD</td></tr></table></div>
+<div data-title="Raum"><table id="editableTable"><tr><th>Std.</th><th>Raum</th></tr><tr><td>1</td><td>101</td></tr><tr><td>2</td><td>204</td></tr></table></div>
+</main>
+<footer>Portal-Testvorlage ohne Kontodaten</footer>
+</body>
+</html>
